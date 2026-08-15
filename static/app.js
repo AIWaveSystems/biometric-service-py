@@ -335,18 +335,27 @@ $("reg-open-camera").addEventListener("click", async () => {
   }
 });
 
+const POSE_HINTS = [
+  "Foto 1 de 3: mira de frente, centrado.",
+  "Foto 2 de 3: acércate o aléjate un poco de la cámara y vuelve a mirar de frente.",
+  "Foto 3 de 3: cambia la iluminación o inclina levemente la cabeza, siempre mirando a la cámara.",
+];
+
 $("reg-take-photo").addEventListener("click", async () => {
   try {
     if (!window._regPhotos) window._regPhotos = [];
     if (window._regPhotos.length >= 3) return;
     const blob = await capturePhoto($("reg-video"), $("reg-canvas"));
     window._regPhotos.push(blob);
-    setState($("reg-photo-state"), `Fotos: ${window._regPhotos.length}/3`, "ok");
-    if (window._regPhotos.length >= 3) {
+    const n = window._regPhotos.length;
+    setState($("reg-photo-state"), `Fotos: ${n}/3`, "ok");
+    if (n < 3) {
+      toast(POSE_HINTS[n]);
+    } else {
       closeCamera($("reg-video"));
       setBtnText($("reg-open-camera"), "Reactivar cámara");
       $("reg-take-photo").hidden = true;
-      toast("3 fotos capturadas: se guardan 3 plantillas faciales");
+      toast("3 fotos capturadas");
     }
   } catch {
     toast("Error al capturar");
@@ -382,7 +391,9 @@ $("reg-btn").addEventListener("click", async () => {
     const res = await api("/api/users/register", { method: "POST", body: fd });
     const parts = [];
     if (res.password) parts.push("Contraseña");
-    if (res.registered.some((s) => s.startsWith("cara"))) parts.push(`Biometría facial (${photos.length} fotos)`);
+    const caras = res.registered.find((s) => s.startsWith("cara"));
+    if (caras) parts.push(`Biometría facial (${caras.replace("cara x", "")} plantillas)`);
+    const descartadas = res.registered.find((s) => s.includes("identicas"));
     if (res.registered.includes("voz")) parts.push("Biometría de voz");
     showResult(out, "ok", `Usuario "${res.username}" registrado.\nMétodos: ${parts.join(", ")}.\nYa puedes iniciar sesión.`);
     window._regPhotos = null;
