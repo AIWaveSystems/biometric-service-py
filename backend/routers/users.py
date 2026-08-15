@@ -41,6 +41,8 @@ def register(
     if face_files:
         n_faces = 0
         rejected = None
+        accepted: list = []
+        n_redundant = 0
         for upload in face_files:
             gray = detector.to_gray(detector.load_image(upload.file.read()))
             rect = detector.find_face_rect(gray)
@@ -51,12 +53,13 @@ def register(
             if problem is not None:
                 rejected = problem
                 continue
+            vector = extract_lbph(face)
+            if quality.is_redundant(vector, accepted):
+                n_redundant += 1
+                continue
+            accepted.append(vector)
             db.add(
-                FaceTemplate(
-                    user_id=user.id,
-                    algorithm="lbph",
-                    features=extract_lbph(face).tobytes(),
-                )
+                FaceTemplate(user_id=user.id, algorithm="lbph", features=vector.tobytes())
             )
             n_faces += 1
         if n_faces == 0:
@@ -65,6 +68,8 @@ def register(
                 detail=rejected or "No se detecto ninguna cara en las imagenes",
             )
         registered.append(f"cara x{n_faces}")
+        if n_redundant:
+            registered.append(f"{n_redundant} foto(s) descartada(s) por ser casi identicas")
 
     voice_result = None
     if audio is not None:

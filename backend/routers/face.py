@@ -176,7 +176,10 @@ def login(
     reason = None
     if not verified:
         if not result["stable"]:
-            reason = "La cara se pierde en demasiados frames; manten la cabeza estable."
+            reason = (
+                f"Solo se te detecto en {result['n_faces']} de {result['n_frames']} frames. "
+                "Mira de frente a la camara sin girar la cabeza durante la captura."
+            )
         elif not blink:
             reason = "No se detecto parpadeo. Parpadea una vez durante la captura."
         else:

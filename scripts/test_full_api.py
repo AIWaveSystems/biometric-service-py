@@ -102,6 +102,11 @@ r = requests.post(
     ],
 )
 check("alice con 2 caras + voz", r.status_code == 200, str(r.json().get("registered")))
+check(
+    "fotos identicas se descartan por redundancia",
+    any("identicas" in s for s in r.json().get("registered", [])),
+    str(r.json().get("registered")),
+)
 r = requests.post(
     f"{BASE}/api/users/register",
     headers=H,
@@ -202,7 +207,11 @@ check("password incorrecta -> 401", r.status_code == 401)
 print("\n=== 11. Gestion ===")
 users = requests.get(f"{BASE}/api/users", headers=H).json()
 alice = next(u for u in users if u["username"] == "alice")
-check("alice con 2 plantillas de cara", len(alice["face_templates"]) == 2)
+check(
+    "alice con 1 plantilla (la duplicada se filtro)",
+    len(alice["face_templates"]) == 1,
+    f"{len(alice['face_templates'])} plantillas",
+)
 check("borrar bob", requests.delete(f"{BASE}/api/users/bob", headers=H).status_code == 200)
 requests.delete(f"{BASE}/api/users/dave", headers=H)
 

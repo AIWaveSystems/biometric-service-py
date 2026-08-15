@@ -5,6 +5,7 @@ MIN_FACE_SIDE = 80
 MIN_SHARPNESS = 70.0
 MIN_CONTRAST = 22.0
 MAX_CLIPPED_RATIO = 0.28
+MAX_TEMPLATE_SIMILARITY = 0.90
 
 
 def sharpness(face: np.ndarray) -> float:
@@ -46,3 +47,9 @@ def check(metrics: dict) -> str | None:
 def evaluate(face: np.ndarray, rect: tuple[int, int, int, int] | None = None) -> tuple[dict, str | None]:
     metrics = measure(face, rect)
     return metrics, check(metrics)
+
+
+def is_redundant(vector: np.ndarray, accepted: list[np.ndarray]) -> bool:
+    from .matcher import lbph_similarity
+
+    return any(lbph_similarity(vector, other) > MAX_TEMPLATE_SIMILARITY for other in accepted)
