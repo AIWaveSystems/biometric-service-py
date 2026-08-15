@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 MIN_FACE_SIDE = 80
-MIN_SHARPNESS = 100.0
+MIN_SHARPNESS = 70.0
 MIN_CONTRAST = 22.0
 MAX_CLIPPED_RATIO = 0.28
 
