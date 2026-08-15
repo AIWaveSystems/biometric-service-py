@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./.venv/Scripts/python.exe \"C:/Users/andres-2/AppData/Local/Temp/claude/c--Users-andres-2-Documents-propios-login-biometrico-service/ecaea696-e2cc-474f-b604-423fb1d0e2ad/scratchpad/probe_face.py\")"
+    ]
+  }
+}

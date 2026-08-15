@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portal Biométrico</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- Pantalla previa de autenticación (credenciales desde .env) -->
+  <section id="gate" class="gate">
+    <div class="gate-card">
+      <div class="gate-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+      </div>
+      <h2>Acceso al portal</h2>
+      <p>Introduce tus credenciales para continuar</p>
+      <div class="field">
+        <label>Usuario</label>
+        <input type="text" id="gate-user" autocomplete="username" placeholder="usuario" />
+      </div>
+      <div class="field">
+        <label>Contraseña</label>
+        <input type="password" id="gate-pass" autocomplete="current-password" placeholder="••••••••" />
+      </div>
+      <button id="gate-btn" class="btn primary full">Entrar</button>
+      <div id="gate-error" class="result" hidden></div>
+    </div>
+  </section>
+
+  <!-- Aplicación -->
+  <div id="app" hidden>
+    <header class="topbar">
+      <h1>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+        Portal Biométrico
+      </h1>
+      <nav>
+        <button class="tab active" data-tab="login">Iniciar sesión</button>
+        <button class="tab" data-tab="registro">Registrarse</button>
+        <button class="tab" data-tab="gestion">Gestión</button>
+        <button id="logout-btn" class="btn ghost">Salir</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="tab-login" class="panel active">
+        <h2>Iniciar sesión</h2>
+        <div class="field">
+          <label>Nombre de usuario</label>
+          <input type="text" id="login-username" placeholder="ej. maria" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>Método</label>
+          <select id="login-mode">
+            <option value="password">Contraseña</option>
+            <option value="face">Rostro</option>
+            <option value="voice">Voz</option>
+            <option value="both">Rostro + Voz</option>
+          </select>
+        </div>
+        <div class="field" id="login-password-field" hidden>
+          <label>Contraseña</label>
+          <input type="password" id="login-password" placeholder="••••••••" />
+        </div>
+
+        <div class="sensor-grid">
+          <div class="sensor" id="login-face-sensor" hidden>
+            <video id="login-video" autoplay playsinline muted></video>
+            <canvas id="login-canvas" hidden></canvas>
+            <div class="sensor-actions">
+              <button id="login-take-photo" class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                  <circle cx="12" cy="13" r="4"></circle>
+                </svg>
+                <span>Capturar (parpadea)</span>
+              </button>
+              <span id="login-photo-state" class="state">Sin captura</span>
+            </div>
+          </div>
+          <div class="sensor" id="login-voice-sensor" hidden>
+            <div class="voice-visual">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+              </svg>
+            </div>
+            <div class="sensor-actions">
+              <button id="login-record" class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <span>Grabar voz (3s)</span>
+              </button>
+              <span id="login-voice-state" class="state">Sin grabación</span>
+            </div>
+            <div class="playback" id="login-playback" hidden>
+              <label>Revisa tu grabación antes de entrar</label>
+              <audio id="login-audio" controls preload="metadata"></audio>
+            </div>
+          </div>
+        </div>
+
+        <button id="login-btn" class="btn primary full">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+            <polyline points="10 17 15 12 10 7"></polyline>
+            <line x1="15" y1="12" x2="3" y2="12"></line>
+          </svg>
+          <span>Entrar</span>
+        </button>
+        <div id="login-result" class="result"></div>
+      </section>
+
+      <section id="tab-registro" class="panel">
+        <h2>Registrar usuario</h2>
+        <div class="field">
+          <label>Nombre de usuario</label>
+          <input type="text" id="reg-username" placeholder="ej. maria" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>Contraseña (opcional)</label>
+          <input type="password" id="reg-password" placeholder="mín. 6 caracteres" />
+        </div>
+
+        <div class="sensor-grid">
+          <div class="sensor">
+            <video id="reg-video" autoplay playsinline muted></video>
+            <canvas id="reg-canvas" hidden></canvas>
+            <div class="sensor-actions">
+              <button id="reg-open-camera" class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                  <circle cx="12" cy="13" r="4"></circle>
+                </svg>
+                <span>Activar cámara</span>
+              </button>
+              <button id="reg-take-photo" class="btn" hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="5" width="20" height="14" rx="2"></rect>
+                  <circle cx="12" cy="13" r="3"></circle>
+                </svg>
+                <span>Tomar foto</span>
+              </button>
+              <span id="reg-photo-state" class="state">Sin foto</span>
+            </div>
+          </div>
+          <div class="sensor">
+            <div class="voice-visual">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+              </svg>
+            </div>
+            <div class="sensor-actions">
+              <button id="reg-record" class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <span>Grabar voz (5s)</span>
+              </button>
+              <span id="reg-voice-state" class="state">Sin grabación</span>
+            </div>
+            <div class="playback" id="reg-playback" hidden>
+              <label>Escucha tu grabación antes de registrarla</label>
+              <audio id="reg-audio" controls preload="metadata"></audio>
+              <p class="hint">Si se oye ruido, cortada o muy baja, vuelve a grabar: esta muestra define tu plantilla de voz.</p>
+            </div>
+          </div>
+        </div>
+
+        <button id="reg-btn" class="btn primary full">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="8.5" cy="7" r="4"></circle>
+            <line x1="20" y1="8" x2="20" y2="14"></line>
+            <line x1="23" y1="11" x2="17" y2="11"></line>
+          </svg>
+          <span>Registrar</span>
+        </button>
+        <div id="reg-result" class="result"></div>
+      </section>
+
+      <section id="tab-gestion" class="panel">
+        <h2>Usuarios registrados</h2>
+        <button id="refresh-users" class="btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+          </svg>
+          <span>Actualizar</span>
+        </button>
+        <table id="users-table">
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Contraseña</th>
+              <th>Rostro</th>
+              <th>Voz</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" hidden></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
