@@ -17,9 +17,10 @@ Haar y aplicar filtros de imagen.
 6. [Cómo funciona el reconocimiento de voz](#cómo-funciona-el-reconocimiento-de-voz)
 7. [Modelo de seguridad](#modelo-de-seguridad)
 8. [API](#api)
-9. [Calibración de umbrales](#calibración-de-umbrales)
-10. [Scripts](#scripts)
-11. [Limitaciones conocidas](#limitaciones-conocidas)
+9. [Rendimiento medido](#rendimiento-medido)
+10. [Calibración de umbrales](#calibración-de-umbrales)
+11. [Scripts](#scripts)
+12. [Limitaciones conocidas](#limitaciones-conocidas)
 
 ---
 
@@ -45,6 +46,7 @@ backend/
       lbph.py          patrones binarios locales uniformes multiescala
       matcher.py       métricas de distancia y similitud
       liveness.py      señal de apertura ocular y detección de parpadeo
+      quality.py       puerta de calidad de captura (nitidez, tamaño, contraste)
       eigenfaces.py    PCA desde cero (implementado, no usado por la API)
     voice/
       wav.py           lectura de WAV PCM y remuestreo con filtro antialiasing
@@ -95,8 +97,9 @@ Los scripts de prueba que hablan con la API por HTTP necesitan además
 | `JWT_EXPIRE_MINUTES` | `60` | Vigencia del token del portal. |
 | `SESSION_EXPIRE_MINUTES` | `15` | Vigencia del token de sesión de usuario. |
 | `FACE_THRESHOLD` | `0.70` | Similitud coseno mínima para aceptar un rostro. |
-| `VOICE_Z_THRESHOLD` | `-2.5` | z-score mínimo frente a la matrícula. |
-| `VOICE_RATIO_THRESHOLD` | `-3.0` | Ventaja mínima sobre la cohorte. |
+| `VOICE_LLR_THRESHOLD` | `0.4` | Log-verosimilitud mínima frente al UBM (vía principal). |
+| `VOICE_Z_THRESHOLD` | `-2.5` | z-score mínimo (solo en el modo de reserva). |
+| `VOICE_RATIO_THRESHOLD` | `-3.0` | Ventaja mínima sobre la cohorte (modo de reserva). |
 | `LIVENESS_MIN_FACES` | `6` | Frames con rostro necesarios para evaluar el parpadeo. |
 | `LIVENESS_MAX_GAP_RATIO` | `0.4` | Fracción máxima de frames sin rostro admitida. |
 | `REPLAY_WINDOW_SECONDS` | `300` | Ventana en la que se rechaza una captura repetida. |
@@ -159,6 +162,30 @@ para experimentar con otras métricas.
 
 Cada usuario puede tener varias plantillas (el portal captura 3 fotos). La
 verificación toma el **máximo** de las similitudes contra todas ellas.
+
+### 4. Puerta de calidad (`quality.py`)
+
+Una captura mala no produce un error honesto: produce un descriptor degradado.
+Medido sobre el banco de degradaciones, dos caras **distintas** pero ambas
+borrosas se parecen más entre sí que una cara nítida y su versión borrosa. Forzar
+la detección sobre entradas malas empeoró la separación de +0.087 a −0.145.
+
+Por eso el servicio **rechaza la captura** en lugar de puntuarla, con un mensaje
+accionable:
+
+| Métrica | Mínimo | Motivo |
+|---|---|---|
+| Lado del rostro | 80 px | Rostro lejano: poca textura para el LBP. |
+| Nitidez (varianza del laplaciano) | 100 | El desenfoque es el mayor destructor de identidad. |
+| Contraste (desviación típica) | 22 | Sin contraste no hay patrones locales. |
+| Píxeles quemados o negros | < 28 % | Contraluz o sobreexposición. |
+
+El umbral de nitidez sale de los datos: las variantes borrosas puntúan 30 y 54,
+y la siguiente peor variante puntúa 149 con una similitud aceptable de 0.865. El
+corte en 100 separa ambos grupos sin ambigüedad.
+
+En el login facial la puerta se aplica **por frame**: los frames borrosos se
+descartan para la identidad, pero siguen contando para el liveness.
 
 ---
 
@@ -293,19 +320,37 @@ self_score entrenamiento =  1.09
 self_score held-out      = -1.78   sigma = 7.30
 ```
 
-### 6. Verificación
+### 6. Verificación: UBM y adaptación MAP
 
-Se calculan dos estadísticos:
+Entrenar un GMM independiente con 3-5 segundos de audio sobreajusta: hay más
+parámetros que datos. La solución estándar es **GMM-UBM con adaptación MAP**.
 
-- **z-score**: `(verosimilitud − self_score) / sigma`. Al dividir por la
-  desviación, el umbral no depende de la escala de verosimilitud de cada locutor.
-- **ratio de cohorte**: `verosimilitud_objetivo − verosimilitud_cohorte`, donde la
-  cohorte es un GMM entrenado con las voces de **los demás** usuarios. Responde a
-  "¿se parece más a esta persona que a la población general?".
+1. Se entrena un **UBM** (Universal Background Model) de 32 componentes con las
+   voces de **todos los demás** usuarios registrados. Representa "cómo suena la
+   voz humana en general" en este despliegue.
+2. El modelo de cada locutor no se entrena desde cero: se **adapta** del UBM
+   desplazando sus medias hacia los datos del usuario, con
+   `media_nueva = α·centroide + (1−α)·media_UBM`, donde `α = n / (n + r)` y
+   `r = 16` es el factor de relevancia. Las componentes con pocos datos apenas se
+   mueven y heredan la robustez del UBM.
+3. La decisión es la **razón de log-verosimilitudes**:
+   `LLR = verosimilitud_locutor − verosimilitud_UBM`.
 
-Se acepta si el z-score supera su umbral **y** el ratio supera el suyo. Cuando no
-hay otros usuarios registrados no existe cohorte y la decisión recae solo en el
-z-score; la respuesta lo indica con `used_cohort: false`.
+Medido sobre 12 locutores sintéticos con variación de canal, ganancia y ruido, el
+UBM-MAP baja el EER de **36.2 % a 19.9 %**. Ver
+[Rendimiento medido](#rendimiento-medido).
+
+El UBM se cachea en memoria y solo se reentrena cuando cambia el conjunto de
+plantillas. El modelo del locutor se re-adapta en cada verificación a partir de
+sus características almacenadas, de modo que nunca queda desfasado respecto al
+UBM vigente.
+
+**Modo de reserva.** El UBM necesita al menos 2 locutores de fondo distintos. Con
+menos usuarios registrados no hay población que modelar y el sistema cae al modo
+anterior (z-score contra la matrícula más ratio de cohorte). La respuesta indica
+cuál se usó en `scoring` (`"ubm-map"` o `"gmm-z"`) y cuántos locutores había en
+`n_background_speakers`. **La verificación de voz es notablemente más débil en
+modo de reserva**; conviene tener al menos 3 usuarios con voz registrada.
 
 Antes, cuando había menos de dos usuarios, la cohorte se construía con la **propia
 voz del objetivo**. Eso comparaba al usuario consigo mismo y hacía el ratio
@@ -378,6 +423,71 @@ Todas las rutas `/api/*` salvo `/api/portal/auth` requieren
 
 Las respuestas de login incluyen `reason` con una explicación legible cuando la
 verificación falla, y `access_token` cuando tiene éxito.
+
+---
+
+## Rendimiento medido
+
+Todas las cifras salen de los scripts del repositorio y son reproducibles. **Son
+datos sintéticos y de dos imágenes de prueba, no un conjunto real de personas.**
+Sirven para comparar alternativas entre sí, no para prometer una precisión.
+
+### Voz — `python scripts/bench_voice.py`
+
+12 locutores sintéticos, 4 tomas cada uno, con variación de ganancia (0.3–1.0),
+filtro de canal y ruido entre matrícula y verificación. EER = tasa de igual error.
+
+| Método | EER (canal variado) | EER (limpio) |
+|---|---|---|
+| GMM independiente + z-score | 44.2 % | — |
+| GMM independiente + ratio de cohorte | 36.2 % | — |
+| **UBM-MAP + LLR** | **19.9 %** | **13.8 %** |
+
+La adaptación MAP reduce el error a la mitad. El z-score, que era la vía
+principal, resultó ser ruido puro bajo MAP (50.4 %, equivalente a lanzar una
+moneda); por eso la decisión pasó a basarse solo en el LLR.
+
+Barrido de hiperparámetros que fijó la configuración actual:
+
+| Componentes UBM | Relevancia | EER variado | EER limpio |
+|---|---|---|---|
+| 16 | 8 | 25.0 % | 16.3 % |
+| 16 | 16 | 22.5 % | 16.3 % |
+| 16 | 32 | 22.1 % | 16.3 % |
+| 32 | 8 | 22.1 % | 13.8 % |
+| **32** | **16** | **19.9 %** | **13.8 %** |
+
+### Por qué se conserva el CMVN
+
+El CMVN destruye parte de la identidad del locutor, pero es imprescindible:
+
+| Normalización | EER limpio | EER canal variado |
+|---|---|---|
+| Ninguna | **0.0 %** | 50.0 % |
+| Solo media (CMN) | 29.8 % | 46.1 % |
+| **CMVN** | 16.4 % | **25.0 %** |
+
+Sin normalización el sistema es perfecto mientras no cambie nada y **completamente
+inútil** en cuanto cambia el micrófono o la ganancia. El CMVN cambia precisión en
+condiciones ideales por funcionar en condiciones reales.
+
+### Rostro — `python scripts/bench_face.py`
+
+Dos identidades sometidas a 15 degradaciones (rotación, desplazamiento, gamma, luz
+lateral, JPEG, desenfoque, ruido, escala, contraste).
+
+| Configuración | Separación (mín. genuino − máx. impostor) |
+|---|---|
+| **Actual (detección Haar + CLAHE + coseno)** | **+0.0874** |
+| Detección forzada multiescala + rotaciones | −0.1446 |
+| Añadiendo alineación canónica por ojos | −0.2128 |
+| Añadiendo normalización Tan-Triggs | −0.0574 |
+
+**Ninguna de las mejoras "estándar" mejoró nada en esta prueba.** Se probaron y se
+descartaron por evidencia, no por criterio. Con solo dos identidades no es posible
+distinguir una mejora real de un artefacto, así que el descriptor se dejó como
+estaba y el esfuerzo se puso en la puerta de calidad, que sí es defendible sin
+conjunto de datos.
 
 ---
 
@@ -458,6 +568,8 @@ se ve directamente si el parpadeo lo cruza.
 | `test_lbph.py` | Comprobaciones del descriptor LBPH. |
 | `test_separation.py` | Similitud genuino/impostor con las imágenes de ejemplo. |
 | `bench_metrics.py` | Compara métricas de distancia bajo distintas transformaciones. |
+| `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
+| `bench_face.py` | Separación facial bajo 15 degradaciones controladas. |
 | `test_api.py` | Prueba manual de los endpoints faciales. |
 | `test_full_api.py` | Suite de integración completa contra un servidor en marcha. |
 | `calibrate_face.py` | Calcula FAR/FRR/EER faciales con datos reales. |
@@ -480,10 +592,20 @@ Estas son limitaciones reales del diseño, no defectos pendientes de arreglo.
   descarta una foto impresa o en pantalla. **No** detecta un vídeo de la persona
   parpadeando, ni una máscara, ni un deepfake. Un sistema de producción necesita
   análisis de textura, luz estructurada o profundidad.
-- **La verificación de voz con 3 segundos es intrínsecamente débil.** En las
-  pruebas, un impostor acústicamente cercano al objetivo puede puntuar mejor que
-  un genuino grabado con ruido. Para decisiones sensibles conviene el modo
-  **Rostro + Voz**, que exige superar ambos factores.
+- **La verificación de voz sigue siendo débil en términos absolutos.** El
+  UBM-MAP la mejoró de 36.2 % a 19.9 % de EER, pero **un 20 % de EER significa que
+  uno de cada cinco intentos se clasifica mal** en el punto de igual error. Con
+  grabaciones de 3-5 segundos y un GMM diagonal no se llega mucho más lejos; los
+  sistemas actuales usan embeddings neuronales (x-vectors, ECAPA). Para decisiones
+  sensibles usa el modo **Rostro + Voz**.
+- **La voz necesita población.** El UBM exige al menos 2 locutores de fondo
+  distintos. Con uno o dos usuarios el sistema cae al modo de reserva, que es
+  sustancialmente peor. Registra al menos 3 usuarios con voz.
+- **La precisión facial no está validada.** Con dos identidades de prueba no se
+  puede medir FAR de forma significativa. Las mejoras habituales (alineación
+  canónica, Tan-Triggs, detección multiescala) se probaron y **empeoraron** el
+  resultado en esta prueba, así que no se incluyeron. Sin un conjunto real de
+  caras, la precisión facial es una incógnita.
 - **Las plantillas se guardan sin cifrar.** `voice_templates.features` contiene
   MFCC crudos, de los que puede reconstruirse información de la voz. Un despliegue
   real necesita cifrado en reposo con gestión de claves.
