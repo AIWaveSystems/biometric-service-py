@@ -1,5 +1,6 @@
 import io
 import threading
+from collections import OrderedDict
 
 import numpy as np
 
@@ -11,6 +12,7 @@ N_COMPONENTS = 8
 COHORT_COMPONENTS = 4
 UBM_COMPONENTS = 32
 MAP_RELEVANCE = 16.0
+UBM_CACHE_ENTRIES = 16
 COHORT_MAX_FRAMES = 40000
 MIN_VOICED_FRAMES = 50
 MIN_DURATION = 1.0
@@ -163,22 +165,29 @@ def enroll_map(feat: np.ndarray, ubm: GMM) -> tuple[GMM, float, float]:
 
 
 class UbmCache:
-    def __init__(self):
-        self._key: object = None
-        self._model: GMM | None = None
+    def __init__(self, max_entries: int = UBM_CACHE_ENTRIES):
+        self._entries: OrderedDict[object, GMM | None] = OrderedDict()
+        self._max_entries = max_entries
         self._lock = threading.Lock()
 
     def get(self, key: object, background: list[np.ndarray]) -> GMM | None:
         with self._lock:
-            if key != self._key:
-                self._model = fit_ubm(background)
-                self._key = key
-            return self._model
+            if key in self._entries:
+                self._entries.move_to_end(key)
+                return self._entries[key]
+
+        model = fit_ubm(background)
+
+        with self._lock:
+            self._entries[key] = model
+            self._entries.move_to_end(key)
+            while len(self._entries) > self._max_entries:
+                self._entries.popitem(last=False)
+            return model
 
     def invalidate(self) -> None:
         with self._lock:
-            self._key = None
-            self._model = None
+            self._entries.clear()
 
 
 ubm_cache = UbmCache()
