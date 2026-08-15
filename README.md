@@ -570,6 +570,7 @@ se ve directamente si el parpadeo lo cruza.
 | `bench_metrics.py` | Compara métricas de distancia bajo distintas transformaciones. |
 | `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
 | `bench_face.py` | Separación facial bajo 15 degradaciones controladas. |
+| `test_replay.py` | Demuestra que una voz reproducida por altavoz se acepta. |
 | `test_api.py` | Prueba manual de los endpoints faciales. |
 | `test_full_api.py` | Suite de integración completa contra un servidor en marcha. |
 | `calibrate_face.py` | Calcula FAR/FRR/EER faciales con datos reales. |
@@ -612,8 +613,14 @@ Estas son limitaciones reales del diseño, no defectos pendientes de arreglo.
 - **El anti-replay vive en memoria del proceso.** Funciona con una sola instancia;
   con varios workers o réplicas haría falta un almacén compartido tipo Redis. Lo
   mismo aplica al rate limiter.
-- **El anti-replay compara bytes exactos.** Detiene el reenvío literal de una
-  captura, no una regrabación de un vídeo mostrado a la cámara.
+- **El anti-replay compara bytes exactos, y eso deja abierto el ataque real.**
+  Detiene el reenvío literal de una captura, pero **no** detecta una grabación
+  reproducida por altavoz ni un vídeo mostrado a la cámara. Medido con
+  `scripts/test_replay.py`: una grabación genuina pasada por altavoz y micrófono
+  puntúa 5.48 de LLR frente a un umbral de 0.4, es decir, **se acepta**. Esto no
+  es un fallo de calibración: un GMM modela *quién* habla, no *si está vivo*.
+  Cerrarlo exige un detector de suplantación aparte (análisis de la banda alta,
+  artefactos de altavoz, reverberación, o un desafío de texto aleatorio).
 - **Un único juego de credenciales para todo el portal.** Quien tenga
   `PORTAL_USER`/`PORTAL_PASSWORD` puede listar y borrar cualquier usuario. No hay
   roles ni auditoría.
