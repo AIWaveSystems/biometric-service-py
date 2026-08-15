@@ -374,6 +374,8 @@ $("reg-record").addEventListener("click", async () => {
 });
 
 $("reg-btn").addEventListener("click", async () => {
+  const btn = $("reg-btn");
+  if (btn.disabled) return;
   const username = $("reg-username").value.trim();
   const password = $("reg-password").value || null;
   const out = $("reg-result");
@@ -387,6 +389,9 @@ $("reg-btn").addEventListener("click", async () => {
   if (password) fd.append("password", password);
   photos.forEach((b, i) => fd.append("images", b, `face${i}.jpg`));
   if (window._regVoice) fd.append("audio", window._regVoice, "voice.wav");
+
+  btn.disabled = true;
+  setBtnText(btn, "Registrando…");
   try {
     const res = await api("/api/users/register", { method: "POST", body: fd });
     const parts = [];
@@ -403,6 +408,9 @@ $("reg-btn").addEventListener("click", async () => {
     setState($("reg-voice-state"), "Sin grabación", "");
   } catch (e) {
     showResult(out, "err", e.message);
+  } finally {
+    btn.disabled = false;
+    setBtnText(btn, "Registrar");
   }
 });
 
