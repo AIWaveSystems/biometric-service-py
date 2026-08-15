@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from passlib.context import CryptContext
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..biometrics.face import detector, quality
@@ -35,7 +36,11 @@ def register(
 
     user = User(username=username, password_hash=pwd.hash(password) if password else None)
     db.add(user)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="El usuario ya existe")
 
     registered = []
     if face_files:
@@ -85,7 +90,12 @@ def register(
         )
         registered.append("voz")
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="El usuario ya existe")
+
     return {
         "username": username,
         "registered": registered,

@@ -1,6 +1,7 @@
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..biometrics.face import detector, liveness, quality
@@ -81,9 +82,13 @@ def register(
         user = User(username=username)
 
     db.add(user)
-    db.flush()
-    db.add(FaceTemplate(user_id=user.id, algorithm="lbph", features=features.tobytes()))
-    db.commit()
+    try:
+        db.flush()
+        db.add(FaceTemplate(user_id=user.id, algorithm="lbph", features=features.tobytes()))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="El usuario ya existe")
 
     return FaceRegisterResponse(
         username=username,
