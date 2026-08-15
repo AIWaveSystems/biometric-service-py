@@ -87,6 +87,7 @@ def register(
 
     return VoiceRegisterResponse(
         username=username,
+        uuid=str(user.uuid),
         algorithm="mfcc-gmm",
         n_components=n_components,
         duration_seconds=round(duration, 2),
@@ -125,6 +126,7 @@ def verify(
         return VoiceVerifyResponse(
             verified=verified,
             username=username if verified else None,
+            uuid=str(user.uuid) if verified else None,
             score=round(llr, 3),
             z_score=0.0,
             ratio=round(llr, 3),
@@ -134,7 +136,7 @@ def verify(
             used_cohort=True,
             scoring="ubm-map",
             n_background_speakers=n_background,
-            access_token=create_session_token(username, "voice") if verified else None,
+            access_token=create_session_token(username, "voice", str(user.uuid)) if verified else None,
             expires_in=settings.session_expire_minutes * 60 if verified else None,
             reason=reason,
         )
@@ -159,6 +161,7 @@ def verify(
     return VoiceVerifyResponse(
         verified=verified,
         username=username if verified else None,
+        uuid=str(user.uuid) if verified else None,
         score=round(margin, 3),
         z_score=round(z, 3),
         ratio=round(ratio, 3) if ratio is not None else None,
@@ -168,7 +171,7 @@ def verify(
         used_cohort=used_cohort,
         scoring="gmm-z",
         n_background_speakers=n_background,
-        access_token=create_session_token(username, "voice") if verified else None,
+        access_token=create_session_token(username, "voice", str(user.uuid)) if verified else None,
         expires_in=settings.session_expire_minutes * 60 if verified else None,
         reason=reason,
     )

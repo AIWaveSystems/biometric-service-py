@@ -4,8 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..biometrics.face import detector, quality
-from ..biometrics.face.lbph import extract_lbph
+from ..biometrics.face import detector, embedder, quality
 from ..database import get_db
 from ..models import FaceTemplate, User
 from ..schemas import UserResponse, VoiceRegisterResponse
@@ -49,22 +48,23 @@ def register(
         accepted: list = []
         n_redundant = 0
         for upload in face_files:
-            gray = detector.to_gray(detector.load_image(upload.file.read()))
-            rect = detector.find_face_rect(gray)
-            if rect is None:
+            img = detector.load_image(upload.file.read())
+            face = embedder.primary_face(img)
+            if face is None:
                 continue
-            face = detector.normalize_face(gray, rect)
-            problem = quality.check(quality.measure(face, rect))
+            rect = embedder.face_rect(face, img.shape)
+            normalized = detector.normalize_face(img, rect)
+            problem = quality.check(quality.measure(normalized, rect))
             if problem is not None:
                 rejected = problem
                 continue
-            vector = extract_lbph(face)
+            vector = embedder.embed(img, face)
             if quality.is_redundant(vector, accepted):
                 n_redundant += 1
                 continue
             accepted.append(vector)
             db.add(
-                FaceTemplate(user_id=user.id, algorithm="lbph", features=vector.tobytes())
+                FaceTemplate(user_id=user.id, algorithm="sface", features=vector.tobytes())
             )
             n_faces += 1
         if n_faces == 0:
@@ -96,8 +96,10 @@ def register(
         db.rollback()
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
+    db.refresh(user)
     return {
         "username": username,
+        "uuid": str(user.uuid),
         "registered": registered,
         "password": bool(password),
         "voice": voice_result.model_dump() if voice_result else None,
@@ -110,6 +112,7 @@ def list_users(db: Session = Depends(get_db)):
     return [
         UserResponse(
             username=u.username,
+            uuid=str(u.uuid),
             has_password=bool(u.password_hash),
             face_templates=[{"id": t.id, "algorithm": t.algorithm} for t in u.face_templates],
             voice_templates=[
@@ -125,11 +128,29 @@ def list_users(db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/by-uuid/{user_uuid}", response_model=UserResponse)
+def get_by_uuid(user_uuid: str, db: Session = Depends(get_db)):
+    user = db.execute(select(User).where(User.uuid == user_uuid)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return UserResponse(
+        username=user.username,
+        uuid=str(user.uuid),
+        has_password=bool(user.password_hash),
+        face_templates=[{"id": t.id, "algorithm": t.algorithm} for t in user.face_templates],
+        voice_templates=[
+            {"id": t.id, "algorithm": t.algorithm, "duration_seconds": t.duration_seconds}
+            for t in user.voice_templates
+        ],
+    )
+
+
 @router.delete("/{username}")
 def delete_user(username: str, db: Session = Depends(get_db)):
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    deleted_uuid = str(user.uuid)
     db.delete(user)
     db.commit()
-    return {"deleted": username}
+    return {"deleted": username, "uuid": deleted_uuid}

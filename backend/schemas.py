@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 class FaceRegisterResponse(BaseModel):
     username: str
+    uuid: str
     algorithm: str
     message: str
 
@@ -10,6 +11,7 @@ class FaceRegisterResponse(BaseModel):
 class FaceVerifyResponse(BaseModel):
     verified: bool
     username: str | None = None
+    uuid: str | None = None
     similarity: float
     threshold: float
 
@@ -17,6 +19,7 @@ class FaceVerifyResponse(BaseModel):
 class FaceLoginResponse(BaseModel):
     verified: bool
     username: str | None = None
+    uuid: str | None = None
     liveness_passed: bool
     similarity: float
     threshold: float
@@ -31,6 +34,7 @@ class FaceLoginResponse(BaseModel):
 
 class FaceIdentifyResponse(BaseModel):
     username: str | None
+    uuid: str | None = None
     similarity: float
     threshold: float
 
@@ -43,6 +47,7 @@ class TokenResponse(BaseModel):
 
 class VoiceRegisterResponse(BaseModel):
     username: str
+    uuid: str | None = None
     algorithm: str
     n_components: int
     duration_seconds: float
@@ -53,6 +58,7 @@ class VoiceRegisterResponse(BaseModel):
 class VoiceVerifyResponse(BaseModel):
     verified: bool
     username: str | None = None
+    uuid: str | None = None
     score: float
     z_score: float
     ratio: float | None = None
@@ -70,6 +76,7 @@ class VoiceVerifyResponse(BaseModel):
 
 class UserResponse(BaseModel):
     username: str
+    uuid: str
     has_password: bool
     face_templates: list[dict]
     voice_templates: list[dict]

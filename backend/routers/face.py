@@ -4,9 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..biometrics.face import detector, liveness, quality
-from ..biometrics.face.lbph import extract_lbph
-from ..biometrics.face.matcher import lbph_similarity
+from ..biometrics.face import detector, embedder, liveness, quality
 from ..config import settings
 from ..database import get_db
 from ..models import FaceTemplate, User
@@ -20,28 +18,33 @@ from ..security import create_session_token, replay_guard
 
 router = APIRouter(prefix="/api/face", tags=["face"])
 
+ALGORITHM = "sface"
 
-def _features_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarray:
-    gray = detector.to_gray(detector.load_image(data))
-    rect = detector.find_face_rect(gray)
-    if rect is None:
+
+def _embedding_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarray:
+    img = detector.load_image(data)
+    face = embedder.primary_face(img)
+    if face is None:
         raise HTTPException(status_code=400, detail="No se detecto ninguna cara en la imagen")
-    face = detector.normalize_face(gray, rect)
+    rect = embedder.face_rect(face, img.shape)
     if enforce_quality:
-        problem = quality.check(quality.measure(face, rect))
+        normalized = detector.normalize_face(img, rect)
+        problem = quality.check(quality.measure(normalized, rect))
         if problem is not None:
             raise HTTPException(status_code=400, detail=problem)
-    return extract_lbph(face)
+    return embedder.embed(img, face)
 
 
 def _best_similarity(features: np.ndarray, templates: list[FaceTemplate]) -> float:
-    best = 0.0
+    best = -1.0
     for tpl in templates:
+        if tpl.algorithm != ALGORITHM:
+            continue
         ref = np.frombuffer(tpl.features, dtype=np.float32)
         if ref.shape != features.shape:
             continue
-        best = max(best, lbph_similarity(features, ref))
-    return best
+        best = max(best, embedder.similarity(features, ref))
+    return max(best, 0.0)
 
 
 def _get_user(db: Session, username: str) -> User:
@@ -52,9 +55,12 @@ def _get_user(db: Session, username: str) -> User:
 
 
 def _templates_or_404(user: User) -> list[FaceTemplate]:
-    templates = list(user.face_templates)
+    templates = [t for t in user.face_templates if t.algorithm == ALGORITHM]
     if not templates:
-        raise HTTPException(status_code=404, detail="El usuario no tiene plantilla facial")
+        raise HTTPException(
+            status_code=404,
+            detail="El usuario no tiene plantilla facial vigente. Vuelve a registrar la cara.",
+        )
     return templates
 
 
@@ -69,7 +75,7 @@ def register(
     if existing is not None:
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
-    features = _features_from_bytes(image.file.read())
+    features = _embedding_from_bytes(image.file.read())
 
     if password:
         from passlib.context import CryptContext
@@ -84,15 +90,17 @@ def register(
     db.add(user)
     try:
         db.flush()
-        db.add(FaceTemplate(user_id=user.id, algorithm="lbph", features=features.tobytes()))
+        db.add(FaceTemplate(user_id=user.id, algorithm=ALGORITHM, features=features.tobytes()))
         db.commit()
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
+    db.refresh(user)
     return FaceRegisterResponse(
         username=username,
-        algorithm="lbph",
+        uuid=str(user.uuid),
+        algorithm=ALGORITHM,
         message="Cara registrada correctamente",
     )
 
@@ -105,13 +113,14 @@ def verify(
 ):
     user = _get_user(db, username)
     templates = _templates_or_404(user)
-    features = _features_from_bytes(image.file.read())
+    features = _embedding_from_bytes(image.file.read())
     best = _best_similarity(features, templates)
     verified = best >= settings.face_threshold
 
     return FaceVerifyResponse(
         verified=verified,
         username=username if verified else None,
+        uuid=str(user.uuid) if verified else None,
         similarity=round(best, 4),
         threshold=settings.face_threshold,
     )
@@ -135,21 +144,22 @@ def login(
     quality_problem: str | None = None
     for data in payloads:
         try:
-            gray = detector.to_gray(detector.load_image(data))
+            img = detector.load_image(data)
         except ValueError:
             continue
-        rect = detector.find_face_rect(gray)
-        if rect is None:
+        face = embedder.primary_face(img)
+        if face is None:
             crops.append(None)
             continue
+        rect = embedder.face_rect(face, img.shape)
         x, y, w, h = rect
-        crops.append(gray[y : y + h, x : x + w])
-        normalized = detector.normalize_face(gray, rect)
+        crops.append(detector.to_gray(img)[y : y + h, x : x + w])
+        normalized = detector.normalize_face(img, rect)
         problem = quality.check(quality.measure(normalized, rect))
         if problem is not None:
             quality_problem = problem
             continue
-        feature_list.append(extract_lbph(normalized))
+        feature_list.append(embedder.embed(img, face))
 
     result = liveness.analyze(
         crops,
@@ -193,13 +203,14 @@ def login(
     return FaceLoginResponse(
         verified=verified,
         username=username if verified else None,
+        uuid=str(user.uuid) if verified else None,
         liveness_passed=blink,
         similarity=round(best, 4),
         threshold=settings.face_threshold,
         n_frames=result["n_frames"],
         n_faces=result["n_faces"],
         blink_detected=blink,
-        access_token=create_session_token(username, "face") if verified else None,
+        access_token=create_session_token(username, "face", str(user.uuid)) if verified else None,
         expires_in=settings.session_expire_minutes * 60 if verified else None,
         reason=reason,
     )
@@ -207,28 +218,29 @@ def login(
 
 @router.post("/identify", response_model=FaceIdentifyResponse)
 def identify(image: UploadFile = File(...), db: Session = Depends(get_db)):
-    features = _features_from_bytes(image.file.read())
+    features = _embedding_from_bytes(image.file.read())
 
     rows = db.execute(
-        select(User.username, FaceTemplate.features).join(
-            FaceTemplate, FaceTemplate.user_id == User.id
-        )
+        select(User.username, User.uuid, FaceTemplate.features)
+        .join(FaceTemplate, FaceTemplate.user_id == User.id)
+        .where(FaceTemplate.algorithm == ALGORITHM)
     ).all()
     if not rows:
         raise HTTPException(status_code=404, detail="No hay usuarios registrados")
 
-    best_user, best_sim = None, 0.0
+    best_user, best_uuid, best_sim = None, None, 0.0
     for row in rows:
         ref = np.frombuffer(row.features, dtype=np.float32)
         if ref.shape != features.shape:
             continue
-        sim = lbph_similarity(features, ref)
+        sim = embedder.similarity(features, ref)
         if sim > best_sim:
-            best_sim, best_user = sim, row.username
+            best_sim, best_user, best_uuid = sim, row.username, row.uuid
 
     verified = best_sim >= settings.face_threshold
     return FaceIdentifyResponse(
         username=best_user if verified else None,
+        uuid=str(best_uuid) if verified and best_uuid else None,
         similarity=round(best_sim, 4),
         threshold=settings.face_threshold,
     )
