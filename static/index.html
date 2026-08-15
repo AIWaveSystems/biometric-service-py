@@ -18,7 +18,7 @@
         </svg>
       </div>
       <h2>Acceso al portal</h2>
-      <p>Introduce tus credenciales para continuar</p>
+      <p>Introduce tus credenciales de operador</p>
       <div class="field">
         <label>Usuario</label>
         <input type="text" id="gate-user" autocomplete="username" placeholder="usuario" />
@@ -45,6 +45,9 @@
         <button class="tab active" data-tab="login">Iniciar sesión</button>
         <button class="tab" data-tab="registro">Registrarse</button>
         <button class="tab" data-tab="gestion">Gestión</button>
+        <button class="tab" data-tab="clientes">API keys</button>
+        <button class="tab" data-tab="operadores">Operadores</button>
+        <span id="whoami" class="whoami"></span>
         <button id="logout-btn" class="btn ghost">Salir</button>
       </nav>
     </header>
@@ -208,6 +211,129 @@
               <th>Contraseña</th>
               <th>Rostro</th>
               <th>Voz</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section id="tab-clientes" class="panel">
+        <h2>Clientes API (integraciones externas)</h2>
+        <p class="intro">Las aplicaciones externas envían el header <code>X-API-Key</code> en cada solicitud. Cada clave tiene permisos (<em>scopes</em>) que limitan qué endpoints puede usar.</p>
+
+        <div class="admin-grid">
+          <div class="admin-card">
+            <h3>Nueva API key</h3>
+            <div class="field">
+              <label>Nombre del cliente</label>
+              <input type="text" id="client-name" placeholder="ej. app-movil-prod" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label>Permisos</label>
+              <div class="scope-list">
+                <label class="scope-opt"><input type="checkbox" id="scope-auth" checked /> auth — login y verificación</label>
+                <label class="scope-opt"><input type="checkbox" id="scope-enroll" /> enroll — registro biométrico</label>
+                <label class="scope-opt"><input type="checkbox" id="scope-admin" /> admin — gestión y plantillas</label>
+              </div>
+            </div>
+            <div class="field">
+              <label>Validez (días, vacío = predeterminado)</label>
+              <input type="number" id="client-days" min="1" max="3650" placeholder="365" />
+            </div>
+            <button id="client-create-btn" class="btn primary full">Generar API key</button>
+            <div id="client-create-result" class="result" hidden></div>
+          </div>
+
+          <div class="admin-card">
+            <h3>Uso desde tu backend</h3>
+            <pre class="code-block" id="client-example"></pre>
+            <p class="hint">El portal usa JWT (<code>Authorization: Bearer</code>). Las integraciones externas usan <code>X-API-Key</code>. No mezcles ambos en la misma petición.</p>
+            <table class="scope-table">
+              <thead><tr><th>Permiso</th><th>Endpoints</th></tr></thead>
+              <tbody>
+                <tr><td>auth</td><td>/api/auth/login, /api/face/*, /api/voice/verify</td></tr>
+                <tr><td>enroll</td><td>/api/users/register, /api/face/register, /api/voice/register</td></tr>
+                <tr><td>admin</td><td>/api/clients, /api/portal/users, /api/users (GET/DELETE), plantillas</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <button id="refresh-clients" class="btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            <span>Actualizar</span>
+          </button>
+        </div>
+        <table id="clients-table">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Prefijo</th>
+              <th>Permisos</th>
+              <th>Estado</th>
+              <th>Expira</th>
+              <th>Último uso</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section id="tab-operadores" class="panel">
+        <h2>Operadores del portal</h2>
+        <p class="intro">Estos usuarios acceden a este panel con usuario y contraseña. Son distintos de los usuarios finales que se autentican con biometría.</p>
+
+        <div class="admin-grid">
+          <div class="admin-card">
+            <h3>Nuevo operador</h3>
+            <div class="field">
+              <label>Usuario</label>
+              <input type="text" id="op-username" placeholder="ej. admin-soporte" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label>Contraseña (mín. 8 caracteres)</label>
+              <input type="password" id="op-password" autocomplete="new-password" />
+            </div>
+            <button id="op-create-btn" class="btn primary full">Crear operador</button>
+            <div id="op-create-result" class="result" hidden></div>
+          </div>
+
+          <div class="admin-card">
+            <h3>Cambiar mi contraseña</h3>
+            <div class="field">
+              <label>Contraseña actual</label>
+              <input type="password" id="op-current-pass" autocomplete="current-password" />
+            </div>
+            <div class="field">
+              <label>Nueva contraseña</label>
+              <input type="password" id="op-new-pass" autocomplete="new-password" />
+            </div>
+            <button id="op-change-pass-btn" class="btn full">Actualizar contraseña</button>
+            <div id="op-pass-result" class="result" hidden></div>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <button id="refresh-operators" class="btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            <span>Actualizar</span>
+          </button>
+        </div>
+        <table id="operators-table">
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Estado</th>
+              <th>Último acceso</th>
               <th>Acciones</th>
             </tr>
           </thead>

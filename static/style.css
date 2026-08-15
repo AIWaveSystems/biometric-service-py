@@ -97,7 +97,7 @@ nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 }
 
 /* ---------- contenido ---------- */
-main { max-width: 860px; margin: 24px auto; padding: 0 16px; }
+main { max-width: 1060px; margin: 24px auto; padding: 0 16px; }
 
 .panel { display: none; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
 .panel.active { display: block; }
@@ -217,3 +217,112 @@ th { color: var(--muted); font-weight: 500; }
   line-height: 1.45;
 }
 .state.busy { color: var(--accent); }
+
+.whoami {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 0 6px;
+}
+
+.intro {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+  margin-bottom: 18px;
+}
+
+.intro code {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 720px) {
+  .admin-grid { grid-template-columns: 1fr; }
+}
+
+.admin-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.admin-card h3 {
+  font-size: 15px;
+  margin-bottom: 14px;
+}
+
+.scope-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scope-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.scope-opt input { width: auto; }
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.code-block {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.scope-table { margin-top: 0; font-size: 13px; }
+.scope-table td:first-child { font-family: ui-monospace, monospace; color: var(--accent); }
+
+.btn-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn.sm {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.btn.sm svg { width: 14px; height: 14px; }
+
+.key-box {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(63, 185, 80, 0.08);
+  border: 1px solid var(--ok);
+  border-radius: 8px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  user-select: all;
+}

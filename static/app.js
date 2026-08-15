@@ -2,6 +2,8 @@
 
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "portal_token";
+const PORTAL_USER_KEY = "portal_user";
+const PORTAL_UUID_KEY = "portal_uuid";
 const ENROLL_SECONDS = 5.0;
 const VERIFY_SECONDS = 3.0;
 const BURST_SECONDS = 2.6;
@@ -14,6 +16,63 @@ function getToken() {
 function setToken(t) {
   if (t) sessionStorage.setItem(TOKEN_KEY, t);
   else sessionStorage.removeItem(TOKEN_KEY);
+}
+
+function setPortalSession(data) {
+  if (data?.access_token) setToken(data.access_token);
+  if (data?.username) sessionStorage.setItem(PORTAL_USER_KEY, data.username);
+  if (data?.uuid) sessionStorage.setItem(PORTAL_UUID_KEY, data.uuid);
+  updateWhoami();
+}
+
+function clearPortalSession() {
+  setToken(null);
+  sessionStorage.removeItem(PORTAL_USER_KEY);
+  sessionStorage.removeItem(PORTAL_UUID_KEY);
+  updateWhoami();
+}
+
+function updateWhoami() {
+  const el = $("whoami");
+  if (!el) return;
+  const user = sessionStorage.getItem(PORTAL_USER_KEY);
+  el.textContent = user ? `Operador: ${user}` : "";
+}
+
+function parseJwt(token) {
+  try {
+    const payload = token.split(".")[1];
+    return JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+  } catch {
+    return null;
+  }
+}
+
+function restorePortalSession() {
+  const token = getToken();
+  if (!token) return;
+  if (!sessionStorage.getItem(PORTAL_USER_KEY) || !sessionStorage.getItem(PORTAL_UUID_KEY)) {
+    const p = parseJwt(token);
+    if (p?.sub) sessionStorage.setItem(PORTAL_USER_KEY, p.sub);
+    if (p?.uid) sessionStorage.setItem(PORTAL_UUID_KEY, p.uid);
+  }
+  updateWhoami();
+}
+
+async function validatePortalSession() {
+  const token = getToken();
+  if (!token) return false;
+  try {
+    const me = await api("/api/portal/me");
+    if (me.username) sessionStorage.setItem(PORTAL_USER_KEY, me.username);
+    if (me.uuid) sessionStorage.setItem(PORTAL_UUID_KEY, me.uuid);
+    updateWhoami();
+    return true;
+  } catch {
+    clearPortalSession();
+    showGate();
+    return false;
+  }
 }
 
 function showGate() {
@@ -39,6 +98,21 @@ function showResult(el, type, text) {
   el.textContent = text;
 }
 
+function formatError(detail) {
+  if (Array.isArray(detail)) return detail.map((e) => e.msg || JSON.stringify(e)).join("; ");
+  if (typeof detail === "object" && detail !== null) return JSON.stringify(detail);
+  return detail || "Error desconocido";
+}
+
+function fmtDate(iso) {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+}
+
 async function api(url, opts = {}) {
   const headers = Object.assign({}, opts.headers);
   const token = getToken();
@@ -51,12 +125,12 @@ async function api(url, opts = {}) {
     data = { detail: r.statusText };
   }
   if (r.status === 401) {
-    setToken(null);
+    clearPortalSession();
     showGate();
     toast("Sesión expirada. Vuelve a entrar.");
-    throw new Error(data.detail || "No autorizado");
+    throw new Error(formatError(data.detail) || "No autorizado");
   }
-  if (!r.ok) throw new Error(data.detail || `Error ${r.status}`);
+  if (!r.ok) throw new Error(formatError(data.detail) || `Error ${r.status}`);
   return data;
 }
 
@@ -115,8 +189,8 @@ $("gate-btn").addEventListener("click", async () => {
       body: JSON.stringify({ username, password }),
     });
     const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || "Credenciales invalidas");
-    setToken(data.access_token);
+    if (!r.ok) throw new Error(formatError(data.detail) || "Credenciales invalidas");
+    setPortalSession(data);
     enterApp();
     toast("Bienvenido al portal");
   } catch (e) {
@@ -134,18 +208,24 @@ $("logout-btn").addEventListener("click", () => {
   closeAllCameras();
   clearPlayback("reg");
   clearPlayback("login");
-  setToken(null);
+  clearPortalSession();
   showGate();
 });
 
-document.querySelectorAll(".tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-    document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
-    tab.classList.add("active");
-    $("tab-" + tab.dataset.tab).classList.add("active");
-    if (tab.dataset.tab === "gestion") loadUsers();
+function activateTab(name) {
+  document.querySelectorAll(".tab").forEach((t) => {
+    t.classList.toggle("active", t.dataset.tab === name);
   });
+  document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+  const panel = $("tab-" + name);
+  if (panel) panel.classList.add("active");
+  if (name === "gestion") loadUsers();
+  if (name === "clientes") loadClients();
+  if (name === "operadores") loadOperators();
+}
+
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => activateTab(tab.dataset.tab));
 });
 
 let camStreams = {};
@@ -583,6 +663,223 @@ async function loadUsers() {
 
 $("refresh-users").addEventListener("click", loadUsers);
 
+function clientStatus(c) {
+  if (!c.active) return '<span class="badge no">Revocada</span>';
+  if (c.expired) return '<span class="badge no">Expirada</span>';
+  return '<span class="badge yes">Activa</span>';
+}
+
+function showKeyResult(el, apiKey, aviso) {
+  el.hidden = false;
+  el.className = "result ok";
+  el.innerHTML =
+    `<strong>API key generada.</strong> ${aviso || "Copia y guarda la clave ahora."}` +
+    `<div class="key-box">${apiKey}</div>`;
+}
+
+async function loadClients() {
+  const tbody = $("clients-table").querySelector("tbody");
+  tbody.innerHTML = '<tr><td colspan="7">Cargando…</td></tr>';
+  try {
+    const clients = await api("/api/clients");
+    tbody.innerHTML = "";
+    for (const c of clients) {
+      const tr = document.createElement("tr");
+      const scopes = (c.scopes || []).join(", ");
+      const tdActions = document.createElement("td");
+      const row = document.createElement("div");
+      row.className = "btn-row";
+      if (c.active) {
+        const revoke = document.createElement("button");
+        revoke.className = "btn sm danger";
+        revoke.textContent = "Revocar";
+        revoke.addEventListener("click", async () => {
+          if (!confirm(`¿Revocar la API key de "${c.name}"?`)) return;
+          await api(`/api/clients/${c.uuid}/revoke`, { method: "POST" });
+          toast(`Cliente ${c.name} revocado`);
+          loadClients();
+        });
+        row.appendChild(revoke);
+      }
+      const rotate = document.createElement("button");
+      rotate.className = "btn sm";
+      rotate.textContent = "Rotar";
+      rotate.addEventListener("click", async () => {
+        if (!confirm(`¿Generar nueva clave para "${c.name}"? La anterior dejará de funcionar.`)) return;
+        const res = await api(`/api/clients/${c.uuid}/rotate`, { method: "POST" });
+        const out = $("client-create-result");
+        showKeyResult(out, res.api_key, res.aviso);
+        toast(`Clave rotada para ${c.name}`);
+        loadClients();
+      });
+      row.appendChild(rotate);
+      tdActions.appendChild(row);
+      tr.innerHTML = `
+        <td>${c.name}</td>
+        <td><code>lbs_${c.key_prefix}_…</code></td>
+        <td>${scopes}</td>
+        <td>${clientStatus(c)}</td>
+        <td>${fmtDate(c.expires_at)}</td>
+        <td>${fmtDate(c.last_used_at)}</td>`;
+      tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    }
+    if (!clients.length) tbody.innerHTML = '<tr><td colspan="7">Sin clientes API</td></tr>';
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7">Error: ${e.message}</td></tr>`;
+  }
+}
+
+$("refresh-clients").addEventListener("click", loadClients);
+
+$("client-create-btn").addEventListener("click", async () => {
+  const btn = $("client-create-btn");
+  const out = $("client-create-result");
+  out.hidden = true;
+  const name = $("client-name").value.trim();
+  const scopes = [];
+  if ($("scope-auth").checked) scopes.push("auth");
+  if ($("scope-enroll").checked) scopes.push("enroll");
+  if ($("scope-admin").checked) scopes.push("admin");
+  const daysRaw = $("client-days").value.trim();
+  const body = { name, scopes };
+  if (daysRaw) body.expires_in_days = parseInt(daysRaw, 10);
+  if (!name) return toast("Indica un nombre para el cliente");
+  if (!scopes.length) return toast("Selecciona al menos un permiso");
+  btn.disabled = true;
+  try {
+    const res = await apiJson("/api/clients", body);
+    showKeyResult(out, res.api_key, res.aviso);
+    $("client-name").value = "";
+    $("client-days").value = "";
+    toast(`Cliente "${res.name}" creado`);
+    loadClients();
+  } catch (e) {
+    out.hidden = false;
+    out.className = "result err";
+    out.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function loadOperators() {
+  const tbody = $("operators-table").querySelector("tbody");
+  tbody.innerHTML = '<tr><td colspan="4">Cargando…</td></tr>';
+  try {
+    const ops = await api("/api/portal/users");
+    tbody.innerHTML = "";
+    const me = sessionStorage.getItem(PORTAL_USER_KEY);
+    for (const u of ops) {
+      const tr = document.createElement("tr");
+      const status = u.active
+        ? '<span class="badge yes">Activo</span>'
+        : '<span class="badge no">Inactivo</span>';
+      const bootstrap = u.is_bootstrap ? ' <span class="badge yes">bootstrap</span>' : "";
+      const tdActions = document.createElement("td");
+      if (u.active && u.username !== me) {
+        const disable = document.createElement("button");
+        disable.className = "btn sm danger";
+        disable.textContent = "Desactivar";
+        disable.addEventListener("click", async () => {
+          if (!confirm(`¿Desactivar al operador "${u.username}"?`)) return;
+          await api(`/api/portal/users/${u.uuid}/disable`, { method: "POST" });
+          toast(`Operador ${u.username} desactivado`);
+          loadOperators();
+        });
+        tdActions.appendChild(disable);
+      } else if (u.username === me) {
+        tdActions.textContent = "—";
+      } else {
+        tdActions.textContent = "—";
+      }
+      tr.innerHTML = `
+        <td>${u.username}${bootstrap}</td>
+        <td>${status}</td>
+        <td>${fmtDate(u.last_login_at)}</td>`;
+      tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    }
+    if (!ops.length) tbody.innerHTML = '<tr><td colspan="4">Sin operadores</td></tr>';
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="4">Error: ${e.message}</td></tr>`;
+  }
+}
+
+$("refresh-operators").addEventListener("click", loadOperators);
+
+$("op-create-btn").addEventListener("click", async () => {
+  const btn = $("op-create-btn");
+  const out = $("op-create-result");
+  out.hidden = true;
+  const username = $("op-username").value.trim();
+  const password = $("op-password").value;
+  if (!username || !password) return toast("Completa usuario y contraseña");
+  btn.disabled = true;
+  try {
+    const res = await apiJson("/api/portal/users", { username, password });
+    out.hidden = false;
+    out.className = "result ok";
+    out.textContent = `Operador "${res.username}" creado.`;
+    $("op-username").value = "";
+    $("op-password").value = "";
+    toast(`Operador ${res.username} creado`);
+    loadOperators();
+  } catch (e) {
+    out.hidden = false;
+    out.className = "result err";
+    out.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("op-change-pass-btn").addEventListener("click", async () => {
+  const btn = $("op-change-pass-btn");
+  const out = $("op-pass-result");
+  out.hidden = true;
+  const uuid = sessionStorage.getItem(PORTAL_UUID_KEY);
+  if (!uuid) return toast("Vuelve a iniciar sesión en el portal");
+  const current_password = $("op-current-pass").value;
+  const new_password = $("op-new-pass").value;
+  if (!current_password || !new_password) return toast("Completa ambas contraseñas");
+  btn.disabled = true;
+  try {
+    await apiJson(`/api/portal/users/${uuid}/password`, { current_password, new_password });
+    out.hidden = false;
+    out.className = "result ok";
+    out.textContent = "Contraseña actualizada.";
+    $("op-current-pass").value = "";
+    $("op-new-pass").value = "";
+    toast("Contraseña actualizada");
+  } catch (e) {
+    out.hidden = false;
+    out.className = "result err";
+    out.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function updateClientExample() {
+  const el = $("client-example");
+  if (!el) return;
+  const base = window.location.origin;
+  el.textContent =
+    `curl -X POST ${base}/api/face/login \\\n` +
+    `  -H "X-API-Key: lbs_xxxxxxxxxxxx_secreto" \\\n` +
+    `  -F "username=maria" \\\n` +
+    `  -F "frames=@f0.jpg"`;
+}
+
 syncLoginUI();
-if (getToken()) enterApp();
-else showGate();
+restorePortalSession();
+updateClientExample();
+if (getToken()) {
+  validatePortalSession().then((ok) => {
+    if (ok) enterApp();
+    else showGate();
+  });
+} else {
+  showGate();
+}
