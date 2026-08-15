@@ -50,6 +50,6 @@ def evaluate(face: np.ndarray, rect: tuple[int, int, int, int] | None = None) ->
 
 
 def is_redundant(vector: np.ndarray, accepted: list[np.ndarray]) -> bool:
-    from .matcher import lbph_similarity
+    from .embedder import similarity
 
-    return any(lbph_similarity(vector, other) > MAX_TEMPLATE_SIMILARITY for other in accepted)
+    return any(similarity(vector, other) > MAX_TEMPLATE_SIMILARITY for other in accepted)

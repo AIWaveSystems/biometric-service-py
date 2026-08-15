@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60
     session_expire_minutes: int = 15
 
-    face_threshold: float = 0.70
+    face_threshold: float = 0.363
     voice_z_threshold: float = -2.5
     voice_llr_threshold: float = 0.4
     voice_ratio_threshold: float = -3.0
@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     auth_rate_window_seconds: int = 60
 
     cors_origins: str = ""
+
+    db_pool_size: int = 20
+    db_max_overflow: int = 40
+    db_pool_recycle: int = 1800
+
+    api_key_pepper: str = ""
+    api_key_default_days: int = 365
 
     portal_user: str = ""
     portal_password: str = ""
