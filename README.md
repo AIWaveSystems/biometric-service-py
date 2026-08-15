@@ -89,6 +89,18 @@ Los scripts de prueba que hablan con la API por HTTP necesitan además
 
 ## Configuración (.env)
 
+Copia [`.env.example`](.env.example) a `.env` y rellénalo. Ese archivo explica
+cada variable en detalle: rango útil, cómo calibrarla y qué implica subirla o
+bajarla. La tabla siguiente es el resumen.
+
+```bash
+cp .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(48))"   # para JWT_SECRET
+```
+
+Sin `DATABASE_URL`, `JWT_SECRET`, `PORTAL_USER` y `PORTAL_PASSWORD` el servicio
+no arranca.
+
 | Variable | Por defecto | Qué hace |
 |---|---|---|
 | `DATABASE_URL` | — | Cadena de conexión de SQLAlchemy. Obligatoria. |
@@ -471,7 +483,42 @@ Sin normalización el sistema es perfecto mientras no cambie nada y **completame
 inútil** en cuanto cambia el micrófono o la ganancia. El CMVN cambia precisión en
 condiciones ideales por funcionar en condiciones reales.
 
-### Rostro — `python scripts/bench_face.py`
+### Rostro — datos reales (14 fotos de webcam + 2 impostores)
+
+Medido con `python scripts/diagnose_face.py datos_cara`.
+
+**La diversidad de la matrícula decide si el sistema funciona.** Con las 7 fotos
+utilizables se probaron las 35 combinaciones posibles de 3 plantillas:
+
+| Matrícula | Genuino peor | Impostor mejor | Separación |
+|---|---|---|---|
+| 3 fotos del mismo momento | 0.6366 | 0.6470 | **−0.0105** |
+| 3 fotos de momentos distintos | 0.8397 | 0.6202 | **+0.2194** |
+
+**Todas** las combinaciones tomadas en el mismo momento dan separación negativa:
+no existe umbral que las haga funcionar. **Todas** las que mezclan momentos
+distintos dan separación positiva. Fotos consecutivas se parecen entre sí un
+0.94–0.96; fotos de momentos distintos, un 0.57–0.71.
+
+La causa es que el descriptor LBPH captura tanto la iluminación y la pose como la
+identidad. Tres fotos seguidas describen una sola condición, y cualquier cambio
+posterior de luz o postura cae fuera.
+
+Verificado de extremo a extremo contra el servicio:
+
+| Matrícula | Plantillas | Aciertos | Falsos rechazos | Falsos positivos |
+|---|---|---|---|---|
+| 3 fotos del mismo momento | 1 | 2 | 1 | 0 |
+| 3 fotos variadas | 2 | **4** | **0** | **0** |
+
+Con matrícula variada los genuinos puntúan 0.836–0.884 y los impostores
+0.563–0.593: margen amplio a ambos lados del umbral 0.70.
+
+Por eso el registro **descarta plantillas casi idénticas**
+(`MAX_TEMPLATE_SIMILARITY = 0.90` en `quality.py`) y el portal pide cambiar la
+distancia y la iluminación entre foto y foto.
+
+### Rostro — banco sintético `python scripts/bench_face.py`
 
 Dos identidades sometidas a 15 degradaciones (rotación, desplazamiento, gamma, luz
 lateral, JPEG, desenfoque, ruido, escala, contraste).
@@ -602,11 +649,21 @@ Estas son limitaciones reales del diseño, no defectos pendientes de arreglo.
 - **La voz necesita población.** El UBM exige al menos 2 locutores de fondo
   distintos. Con uno o dos usuarios el sistema cae al modo de reserva, que es
   sustancialmente peor. Registra al menos 3 usuarios con voz.
-- **La precisión facial no está validada.** Con dos identidades de prueba no se
-  puede medir FAR de forma significativa. Las mejoras habituales (alineación
-  canónica, Tan-Triggs, detección multiescala) se probaron y **empeoraron** el
-  resultado en esta prueba, así que no se incluyeron. Sin un conjunto real de
-  caras, la precisión facial es una incógnita.
+- **La detección falla con la cara girada.** `haarcascade_frontalface` solo
+  encuentra rostros de frente. Sobre 14 fotos reales de webcam, **7 no se
+  detectaron** por giro de cabeza. Ninguna cascada de OpenCV (`alt`, `alt2`,
+  `alt_tree`, `profileface`) las recupera de forma fiable, y aflojar
+  `scaleFactor`/`minNeighbors` produce **falsos positivos sobre el fondo** en vez
+  de detecciones buenas: en una prueba la cascada devolvió la puerta de madera de
+  la pared. Arreglarlo de verdad exige un detector DNN (YuNet o similar), no
+  ajustar parámetros.
+- **El reconocimiento depende críticamente de cómo se registró el usuario.** Ver
+  [Rendimiento medido](#rendimiento-medido). Si la matrícula no cubre condiciones
+  variadas, no hay umbral que funcione. El filtro de redundancia mitiga el caso
+  peor, pero no sustituye a un registro hecho con cuidado.
+- **Las mejoras habituales de LBPH no ayudaron.** Alineación canónica por ojos,
+  Tan-Triggs y detección multiescala se probaron y **empeoraron** la separación,
+  así que no se incluyeron.
 - **Las plantillas se guardan sin cifrar.** `voice_templates.features` contiene
   MFCC crudos, de los que puede reconstruirse información de la voz. Un despliegue
   real necesita cifrado en reposo con gestión de claves.
