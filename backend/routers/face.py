@@ -124,11 +124,6 @@ def login(
         raise HTTPException(status_code=400, detail="Se requiere al menos un frame")
 
     payloads = [f.file.read() for f in frames]
-    if not replay_guard.check_and_register(f"face:{username}", payloads):
-        raise HTTPException(
-            status_code=409,
-            detail="Captura repetida detectada. Vuelve a grabar el parpadeo.",
-        )
 
     crops: list[np.ndarray | None] = []
     feature_list: list[np.ndarray] = []
@@ -166,6 +161,11 @@ def login(
         raise HTTPException(
             status_code=400,
             detail=quality_problem or "Ningun frame tiene calidad suficiente para verificar.",
+        )
+    if not replay_guard.check_and_register(f"face:{username}", payloads):
+        raise HTTPException(
+            status_code=409,
+            detail="Captura repetida detectada. Vuelve a grabar el parpadeo.",
         )
 
     best = max((_best_similarity(f, templates) for f in feature_list), default=0.0)

@@ -107,13 +107,13 @@ def verify(
         raise HTTPException(status_code=404, detail="El usuario no tiene plantilla de voz")
 
     data = audio.file.read()
+    feat, _ = _features_from_upload(data)
+
     if not replay_guard.check_and_register(f"voice:{username}", [data]):
         raise HTTPException(
             status_code=409,
             detail="Grabacion repetida detectada. Vuelve a grabar tu voz.",
         )
-
-    feat, _ = _features_from_upload(data)
 
     ubm, n_background = _background_ubm(db, tpl.user_id)
 
