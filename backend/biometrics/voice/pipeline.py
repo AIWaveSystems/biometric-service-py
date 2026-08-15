@@ -1,4 +1,5 @@
 import io
+import threading
 
 import numpy as np
 
@@ -8,6 +9,8 @@ from .gmm import GMM
 SAMPLE_RATE = 16000
 N_COMPONENTS = 8
 COHORT_COMPONENTS = 4
+UBM_COMPONENTS = 32
+MAP_RELEVANCE = 16.0
 COHORT_MAX_FRAMES = 40000
 MIN_VOICED_FRAMES = 50
 MIN_DURATION = 1.0
@@ -126,6 +129,61 @@ def enroll(feat: np.ndarray, n_components: int = N_COMPONENTS) -> tuple[GMM, flo
     return model, mean, sigma
 
 
+def fit_ubm(background: list[np.ndarray], n_components: int = UBM_COMPONENTS) -> GMM | None:
+    pool = [f for f in background if len(f) > 0]
+    if not pool:
+        return None
+    X = np.concatenate(pool, axis=0)
+    if len(X) > COHORT_MAX_FRAMES:
+        idx = np.linspace(0, len(X) - 1, COHORT_MAX_FRAMES).astype(int)
+        X = X[idx]
+    return GMM(choose_components(len(X), n_components)).fit(X)
+
+
+def calibrate_map(feat: np.ndarray, ubm: GMM, folds: int = CALIBRATION_FOLDS) -> tuple[float, float]:
+    index = np.arange(len(feat))
+    held_out: list[np.ndarray] = []
+    for k in range(folds):
+        test_mask = index % folds == k
+        if test_mask.sum() < 10 or (~test_mask).sum() < 20:
+            continue
+        fold_model = ubm.map_adapt(feat[~test_mask], relevance=MAP_RELEVANCE)
+        held_out.append(fold_model.score(feat[test_mask]) - ubm.score(feat[test_mask]))
+    if not held_out:
+        scores = ubm.map_adapt(feat, relevance=MAP_RELEVANCE).score(feat) - ubm.score(feat)
+    else:
+        scores = np.concatenate(held_out)
+    return float(scores.mean()), float(scores.std() + 1e-6)
+
+
+def enroll_map(feat: np.ndarray, ubm: GMM) -> tuple[GMM, float, float]:
+    model = ubm.map_adapt(feat, relevance=MAP_RELEVANCE)
+    mean, sigma = calibrate_map(feat, ubm)
+    return model, mean, sigma
+
+
+class UbmCache:
+    def __init__(self):
+        self._key: object = None
+        self._model: GMM | None = None
+        self._lock = threading.Lock()
+
+    def get(self, key: object, background: list[np.ndarray]) -> GMM | None:
+        with self._lock:
+            if key != self._key:
+                self._model = fit_ubm(background)
+                self._key = key
+            return self._model
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._key = None
+            self._model = None
+
+
+ubm_cache = UbmCache()
+
+
 class VoiceService:
     def cohort_gmm(self, all_features: list[np.ndarray]) -> GMM | None:
         pool = [f for f in all_features if len(f) > 0]
@@ -152,6 +210,9 @@ class VoiceService:
         if cohort is not None:
             return margin, z, ll_target - cohort.mean_score(feat), True
         return margin, z, None, False
+
+    def verify_ubm(self, target: GMM, ubm: GMM, feat: np.ndarray) -> float:
+        return target.mean_score(feat) - ubm.mean_score(feat)
 
 
 voice_service = VoiceService()

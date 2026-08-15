@@ -13,6 +13,7 @@ from ..security import create_session_token, replay_guard
 router = APIRouter(prefix="/api/voice", tags=["voice"])
 
 FEATURE_DIM = 39
+MIN_BACKGROUND_SPEAKERS = 2
 
 
 def _get_user(db: Session, username: str) -> User:
@@ -22,13 +23,29 @@ def _get_user(db: Session, username: str) -> User:
     return user
 
 
-def _cohort_features(db: Session, exclude_user_id: int) -> list[np.ndarray]:
-    rows = (
+def _background_templates(db: Session, exclude_user_id: int) -> list[VoiceTemplate]:
+    return list(
         db.execute(select(VoiceTemplate).where(VoiceTemplate.user_id != exclude_user_id))
         .scalars()
         .all()
     )
-    return [np.frombuffer(t.features, dtype=np.float32).reshape(-1, FEATURE_DIM) for t in rows]
+
+
+def _unpack(template: VoiceTemplate) -> np.ndarray:
+    return np.frombuffer(template.features, dtype=np.float32).reshape(-1, FEATURE_DIM)
+
+
+def _cohort_features(db: Session, exclude_user_id: int) -> list[np.ndarray]:
+    return [_unpack(t) for t in _background_templates(db, exclude_user_id)]
+
+
+def _background_ubm(db: Session, exclude_user_id: int) -> tuple[object, int]:
+    rows = _background_templates(db, exclude_user_id)
+    speakers = {t.user_id for t in rows}
+    if len(speakers) < MIN_BACKGROUND_SPEAKERS:
+        return None, len(speakers)
+    key = tuple(sorted((t.id, len(t.features)) for t in rows))
+    return pipeline.ubm_cache.get(key, [_unpack(t) for t in rows]), len(speakers)
 
 
 def _features_from_upload(data: bytes) -> tuple[np.ndarray, float]:
@@ -98,6 +115,30 @@ def verify(
 
     feat, _ = _features_from_upload(data)
 
+    ubm, n_background = _background_ubm(db, tpl.user_id)
+
+    if ubm is not None:
+        target = ubm.map_adapt(_unpack(tpl), relevance=pipeline.MAP_RELEVANCE)
+        llr = pipeline.voice_service.verify_ubm(target, ubm, feat)
+        verified = llr >= settings.voice_llr_threshold
+        reason = None if verified else "La voz no coincide con la plantilla registrada."
+        return VoiceVerifyResponse(
+            verified=verified,
+            username=username if verified else None,
+            score=round(llr, 3),
+            z_score=0.0,
+            ratio=round(llr, 3),
+            margin=round(llr, 3),
+            z_threshold=settings.voice_llr_threshold,
+            ratio_threshold=settings.voice_llr_threshold,
+            used_cohort=True,
+            scoring="ubm-map",
+            n_background_speakers=n_background,
+            access_token=create_session_token(username, "voice") if verified else None,
+            expires_in=settings.session_expire_minutes * 60 if verified else None,
+            reason=reason,
+        )
+
     target = pipeline.deserialize_gmm(tpl.parameters)
     cohort = pipeline.voice_service.cohort_gmm(_cohort_features(db, tpl.user_id))
     margin, z, ratio, used_cohort = pipeline.voice_service.verify(
@@ -125,6 +166,8 @@ def verify(
         z_threshold=settings.voice_z_threshold,
         ratio_threshold=settings.voice_ratio_threshold if used_cohort else None,
         used_cohort=used_cohort,
+        scoring="gmm-z",
+        n_background_speakers=n_background,
         access_token=create_session_token(username, "voice") if verified else None,
         expires_in=settings.session_expire_minutes * 60 if verified else None,
         reason=reason,

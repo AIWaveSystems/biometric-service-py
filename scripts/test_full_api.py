@@ -112,6 +112,13 @@ r = requests.post(
     ],
 )
 check("bob con cara + voz", r.status_code == 200, str(r.json().get("registered")))
+r = requests.post(
+    f"{BASE}/api/users/register",
+    headers=H,
+    data={"username": "dave"},
+    files=[("audio", ("c1.wav", open("scripts/C_1.wav", "rb"), "audio/wav"))],
+)
+check("dave con voz (activa el UBM)", r.status_code == 200, str(r.json().get("registered")))
 
 print("\n=== 6. ROSTRO: verificacion simple ===")
 r = requests.post(
@@ -172,14 +179,15 @@ r = requests.post(
     data={"username": "alice"},
     files={"audio": ("a2.wav", open("scripts/A_2.wav", "rb"), "audio/wav")},
 ).json()
-check("alice con otra toma suya -> acepta", r["verified"], f"z {r.get('z_score')} ratio {r.get('ratio')}")
+check("alice con otra toma suya -> acepta", r["verified"], f"score {r.get('score')} via {r.get('scoring')}")
+check("usa UBM-MAP con >=2 locutores de fondo", r.get("scoring") == "ubm-map", f"fondo={r.get('n_background_speakers')}")
 r = requests.post(
     f"{BASE}/api/voice/verify",
     headers=H,
     data={"username": "alice"},
     files={"audio": ("b2.wav", open("scripts/B_2.wav", "rb"), "audio/wav")},
 ).json()
-check("alice con voz de bob -> rechaza", not r["verified"], f"z {r.get('z_score')} ratio {r.get('ratio')}")
+check("alice con voz de bob -> rechaza", not r["verified"], f"score {r.get('score')} via {r.get('scoring')}")
 
 print("\n=== 10. CONTRASENA (body JSON) ===")
 r = requests.post(
@@ -196,6 +204,7 @@ users = requests.get(f"{BASE}/api/users", headers=H).json()
 alice = next(u for u in users if u["username"] == "alice")
 check("alice con 2 plantillas de cara", len(alice["face_templates"]) == 2)
 check("borrar bob", requests.delete(f"{BASE}/api/users/bob", headers=H).status_code == 200)
+requests.delete(f"{BASE}/api/users/dave", headers=H)
 
 print(f"\nRESULTADO: {ok} pasaron, {fail} fallaron")
 sys.exit(1 if fail else 0)

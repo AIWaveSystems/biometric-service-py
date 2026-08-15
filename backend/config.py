@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     face_threshold: float = 0.70
     voice_z_threshold: float = -2.5
+    voice_llr_threshold: float = 0.4
     voice_ratio_threshold: float = -3.0
 
     liveness_min_faces: int = 6

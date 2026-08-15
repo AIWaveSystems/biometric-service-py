@@ -60,6 +60,8 @@ class VoiceVerifyResponse(BaseModel):
     z_threshold: float
     ratio_threshold: float | None = None
     used_cohort: bool
+    scoring: str = "gmm-z"
+    n_background_speakers: int = 0
     access_token: str | None = None
     token_type: str = "bearer"
     expires_in: int | None = None
