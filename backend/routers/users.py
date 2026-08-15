@@ -3,7 +3,7 @@ from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..biometrics.face import detector
+from ..biometrics.face import detector, quality
 from ..biometrics.face.lbph import extract_lbph
 from ..database import get_db
 from ..models import FaceTemplate, User
@@ -40,9 +40,16 @@ def register(
     registered = []
     if face_files:
         n_faces = 0
+        rejected = None
         for upload in face_files:
-            face = detector.detect_face(detector.load_image(upload.file.read()))
-            if face is None:
+            gray = detector.to_gray(detector.load_image(upload.file.read()))
+            rect = detector.find_face_rect(gray)
+            if rect is None:
+                continue
+            face = detector.normalize_face(gray, rect)
+            problem = quality.check(quality.measure(face, rect))
+            if problem is not None:
+                rejected = problem
                 continue
             db.add(
                 FaceTemplate(
@@ -54,7 +61,8 @@ def register(
             n_faces += 1
         if n_faces == 0:
             raise HTTPException(
-                status_code=400, detail="No se detecto ninguna cara en las imagenes"
+                status_code=400,
+                detail=rejected or "No se detecto ninguna cara en las imagenes",
             )
         registered.append(f"cara x{n_faces}")
 

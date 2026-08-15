@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..biometrics.face import detector, liveness
+from ..biometrics.face import detector, liveness, quality
 from ..biometrics.face.lbph import extract_lbph
 from ..biometrics.face.matcher import lbph_similarity
 from ..config import settings
@@ -20,10 +20,16 @@ from ..security import create_session_token, replay_guard
 router = APIRouter(prefix="/api/face", tags=["face"])
 
 
-def _features_from_bytes(data: bytes) -> np.ndarray:
-    face = detector.detect_face(detector.load_image(data))
-    if face is None:
+def _features_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarray:
+    gray = detector.to_gray(detector.load_image(data))
+    rect = detector.find_face_rect(gray)
+    if rect is None:
         raise HTTPException(status_code=400, detail="No se detecto ninguna cara en la imagen")
+    face = detector.normalize_face(gray, rect)
+    if enforce_quality:
+        problem = quality.check(quality.measure(face, rect))
+        if problem is not None:
+            raise HTTPException(status_code=400, detail=problem)
     return extract_lbph(face)
 
 
@@ -126,6 +132,7 @@ def login(
 
     crops: list[np.ndarray | None] = []
     feature_list: list[np.ndarray] = []
+    quality_problem: str | None = None
     for data in payloads:
         try:
             gray = detector.to_gray(detector.load_image(data))
@@ -137,7 +144,12 @@ def login(
             continue
         x, y, w, h = rect
         crops.append(gray[y : y + h, x : x + w])
-        feature_list.append(extract_lbph(detector.normalize_face(gray, rect)))
+        normalized = detector.normalize_face(gray, rect)
+        problem = quality.check(quality.measure(normalized, rect))
+        if problem is not None:
+            quality_problem = problem
+            continue
+        feature_list.append(extract_lbph(normalized))
 
     result = liveness.analyze(
         crops,
@@ -149,6 +161,11 @@ def login(
         raise HTTPException(
             status_code=400,
             detail="No se detecto la cara en suficientes frames. Asegurate de mirar a la camara.",
+        )
+    if not feature_list:
+        raise HTTPException(
+            status_code=400,
+            detail=quality_problem or "Ningun frame tiene calidad suficiente para verificar.",
         )
 
     best = max((_best_similarity(f, templates) for f in feature_list), default=0.0)
