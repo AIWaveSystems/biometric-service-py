@@ -68,36 +68,50 @@ WantedBy=multi-user.target
 
 ### Docker
 
-```dockerfile
-FROM python:3.12-slim
+El [`Dockerfile`](https://github.com/AIWaveSystems/biometric-service-py/blob/main/Dockerfile)
+esta en la raiz del repositorio. La imagen es autosuficiente: los modelos ONNX se descargan
+durante la construccion, asi que el arranque no depende de la red.
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libgl1 libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+```bash
+docker build -t login-biometrico-service .
 
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY backend/ backend/
-COPY static/ static/
-COPY scripts/fetch_models.py scripts/
-
-RUN python scripts/fetch_models.py
-
-RUN useradd --create-home biometrico && chown -R biometrico:biometrico /app
-USER biometrico
-
-EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
-
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+docker run -d --name biometrico \
+  -e DATABASE_URL='postgresql+psycopg2://usuario:clave@bd:5432/auth-biometric' \
+  -e JWT_SECRET='...' \
+  -e API_KEY_PEPPER='...' \
+  -e PORTAL_USER=admin \
+  -e PORTAL_PASSWORD='...' \
+  -p 8000:8000 \
+  login-biometrico-service
 ```
 
-`libgl1` y `libglib2.0-0` hacen falta para OpenCV. Los modelos se descargan durante la
-construccion para que la imagen sea autosuficiente y el arranque no dependa de la red.
+| Detalle | Por que |
+| --- | --- |
+| `libgl1` y `libglib2.0-0` | Los necesita OpenCV |
+| Modelos descargados en la build | La imagen no depende de la red al arrancar |
+| Comprobacion de modelos en la build | Falla la construccion si algun ONNX no quedo dentro |
+| Corre como `biometrico` (uid 10001) | Nunca como root |
+| `HEALTHCHECK` sobre `/health` | Marca la imagen no sana si la base no responde |
+
+### Variables de arranque de la imagen
+
+| Variable | Por defecto | Para que |
+| --- | --- | --- |
+| `UVICORN_HOST` | `0.0.0.0` | Interfaz de escucha |
+| `UVICORN_PORT` | `8000` | Puerto |
+| `UVICORN_WORKERS` | `1` | Procesos de uvicorn |
+
+!!! warning "Por que `UVICORN_WORKERS` viene en 1"
+    El limitador de intentos, la guarda de repeticion y la cache de API keys viven en la
+    memoria de cada proceso. Con 4 workers el limite efectivo de intentos se multiplica por
+    4 y el anti-replay se debilita. Escalar con **mas contenedores de un worker** detras de
+    un balanceador es preferible a subir este valor, hasta que ese estado se mueva a Redis.
+    Ver [Limitaciones](limitaciones.md#estado-en-memoria).
+
+!!! danger "La imagen SI redistribuye los modelos"
+    El repositorio no los incluye, pero la imagen construida si. Al distribuirla te aplican
+    las licencias de SFace y WeSpeaker (Apache 2.0), YuNet (MIT) y OpenSeeFace (BSD
+    2-Clause). Conserva los avisos. Ver [Licencia](../licencia.md).
 
 ---
 

@@ -4,7 +4,7 @@ site_url: https://aiwavesystems.github.io/biometric-service-py/
 repo_url: https://github.com/AIWaveSystems/biometric-service-py
 repo_name: AIWaveSystems/biometric-service-py
 edit_uri: edit/main/docs/
-copyright: AIWave Systems
+copyright: Copyright &copy; 2026 Ilesandres &mdash; Licencia MIT
 
 theme:
   name: material
@@ -79,6 +79,7 @@ plugins:
             Despliegue: Deployment
             Seguridad y umbrales: Security and thresholds
             Limitaciones conocidas: Known limitations
+            Licencia: License
 
 markdown_extensions:
   - abbr
@@ -128,6 +129,7 @@ nav:
       - Despliegue: operacion/despliegue.md
       - Seguridad y umbrales: operacion/seguridad.md
       - Limitaciones conocidas: operacion/limitaciones.md
+  - Licencia: licencia.md
 
 extra:
   social:

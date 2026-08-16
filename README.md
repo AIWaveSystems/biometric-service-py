@@ -35,6 +35,7 @@ localmente, sin llamadas externas.
 13. [Calibración de umbrales](#calibración-de-umbrales)
 14. [Scripts](#scripts)
 15. [Limitaciones conocidas](#limitaciones-conocidas)
+16. [Licencia](#licencia)
 
 ---
 
@@ -1586,3 +1587,82 @@ atender miles de peticiones por minuto:
   ser público**: una URL pública de una foto de rostro es exactamente el escenario
   sancionado. Usa bucket privado con URLs firmadas y caducidad. Para autenticar no
   hace falta guardar la foto, solo la plantilla.
+
+---
+
+## Licencia
+
+Este proyecto se publica bajo la **Licencia MIT**.
+
+```
+Copyright (c) 2026 Ilesandres
+```
+
+- Texto vinculante (inglés): [`LICENSE`](LICENSE)
+- Traducción informativa al español, sin valor legal: [`LICENSE.es.md`](LICENSE.es.md)
+- Componentes de terceros y sus licencias: [`NOTICE`](NOTICE)
+
+### En resumen
+
+| Puedes | Debes | No hay |
+| --- | --- | --- |
+| Usarlo con fines **comerciales**, gratis | Conservar el aviso de copyright y la licencia | Garantía de ningún tipo |
+| Modificarlo sin publicar tus cambios | | Responsabilidad del autor por daños |
+| Redistribuirlo, sublicenciarlo o venderlo | | Obligación de liberar tu código |
+| Integrarlo en software cerrado | | Soporte garantizado |
+
+**La mención al autor es obligatoria.** La licencia MIT tiene una sola condición:
+conservar el aviso `Copyright (c) 2026 Ilesandres` en las copias o partes
+sustanciales del software. Eso ya es la atribución, y es exigible. Ponlo donde
+corresponda según tu producto: pantalla de "Acerca de", archivo de licencias de
+la imagen de contenedor, página de créditos del servicio, etc.
+
+Cita sugerida si además quieres mencionarlo de forma explícita:
+
+```
+Construido sobre Login Biométrico Service
+https://github.com/AIWaveSystems/biometric-service-py
+Copyright (c) 2026 Ilesandres — Licencia MIT
+```
+
+### Bajo tu propia responsabilidad
+
+El software se entrega **tal cual**, sin garantías, y el autor **no responde**
+por ningún daño derivado de su uso. En un servicio de autenticación biométrica
+eso pesa más de lo habitual:
+
+- Los umbrales **no están calibrados** contra una población real de impostores.
+- Hay [limitaciones conocidas](#limitaciones-conocidas) sin corregir que afectan
+  a la seguridad, empezando por el login facial con poca luz.
+- Ningún componente ha sido auditado por un tercero.
+
+Quien lo despliegue asume la responsabilidad de validarlo para su caso,
+recalibrar los umbrales con su propia población y cumplir la normativa de
+protección de datos que le aplique. La licencia MIT regula el **software**, no
+los **datos**: no te exime de la Ley 1581.
+
+### Modelos de terceros
+
+Los modelos ONNX **no viajan en el repositorio**: se descargan con
+`python scripts/fetch_models.py` y están en `.gitignore`. Si construyes una
+imagen de contenedor que los incluya, sí los estás redistribuyendo y debes
+cumplir sus licencias (YuNet MIT, SFace Apache 2.0, OpenSeeFace BSD 2-Clause,
+WeSpeaker ResNet34 Apache 2.0). Detalle completo en [`NOTICE`](NOTICE).
+
+---
+
+## License (English)
+
+Released under the **MIT License** — `Copyright (c) 2026 Ilesandres`.
+
+Free for commercial use, modification and redistribution, including in
+proprietary software. The **only** condition is keeping the copyright notice and
+license text in copies or substantial portions — that is the required
+attribution.
+
+Provided **as is**, without warranty of any kind. The author is not liable for
+any damage. Biometric thresholds in this project are **verified, not
+calibrated**: read the [known limitations](docs/operacion/limitaciones.en.md)
+before any real deployment, and recalibrate against your own population.
+
+Third-party model and library licenses are listed in [`NOTICE`](NOTICE).

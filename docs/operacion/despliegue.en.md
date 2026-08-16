@@ -68,36 +68,50 @@ WantedBy=multi-user.target
 
 ### Docker
 
-```dockerfile
-FROM python:3.12-slim
+The [`Dockerfile`](https://github.com/AIWaveSystems/biometric-service-py/blob/main/Dockerfile)
+lives at the repository root. The image is self-contained: ONNX models are downloaded during
+the build, so startup does not depend on the network.
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libgl1 libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+```bash
+docker build -t login-biometrico-service .
 
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY backend/ backend/
-COPY static/ static/
-COPY scripts/fetch_models.py scripts/
-
-RUN python scripts/fetch_models.py
-
-RUN useradd --create-home biometric && chown -R biometric:biometric /app
-USER biometric
-
-EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
-
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+docker run -d --name biometric \
+  -e DATABASE_URL='postgresql+psycopg2://user:password@db:5432/auth-biometric' \
+  -e JWT_SECRET='...' \
+  -e API_KEY_PEPPER='...' \
+  -e PORTAL_USER=admin \
+  -e PORTAL_PASSWORD='...' \
+  -p 8000:8000 \
+  login-biometrico-service
 ```
 
-`libgl1` and `libglib2.0-0` are needed by OpenCV. Models are downloaded at build time so the
-image is self-contained and startup does not depend on the network.
+| Detail | Why |
+| --- | --- |
+| `libgl1` and `libglib2.0-0` | Required by OpenCV |
+| Models downloaded at build time | The image does not need the network at startup |
+| Model check during the build | The build fails if any ONNX did not make it in |
+| Runs as `biometrico` (uid 10001) | Never as root |
+| `HEALTHCHECK` on `/health` | Marks the image unhealthy if the database is down |
+
+### Image startup variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `UVICORN_HOST` | `0.0.0.0` | Listen interface |
+| `UVICORN_PORT` | `8000` | Port |
+| `UVICORN_WORKERS` | `1` | Uvicorn processes |
+
+!!! warning "Why `UVICORN_WORKERS` defaults to 1"
+    The rate limiter, the replay guard and the API key cache live in each process's memory.
+    With 4 workers the effective attempt limit is multiplied by 4 and the replay guard
+    weakens. Scaling with **more single-worker containers** behind a load balancer is
+    preferable to raising this value, until that state moves to Redis. See
+    [Limitations](limitaciones.md#in-memory-state).
+
+!!! danger "The image DOES redistribute the models"
+    The repository does not include them, but the built image does. Distributing it puts you
+    under the licenses of SFace and WeSpeaker (Apache 2.0), YuNet (MIT) and OpenSeeFace (BSD
+    2-Clause). Preserve the notices. See [License](../licencia.md).
 
 ---
 
