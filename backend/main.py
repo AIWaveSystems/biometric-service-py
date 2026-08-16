@@ -36,7 +36,7 @@ ENROLL_PATHS = {
     "/api/voice/digits/enroll",
 }
 ADMIN_PREFIXES = ("/api/clients", "/api/portal/users")
-ADMIN_PATHS = {"/api/users", "/api/face/templates", "/api/voice/templates"}
+ADMIN_PATHS = {"/api/users", "/api/face/templates", "/api/voice/templates", "/api/voice/system"}
 
 
 def required_scope(method: str, path: str) -> str:

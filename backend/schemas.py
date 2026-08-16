@@ -121,6 +121,8 @@ class UserResponse(BaseModel):
     face_templates: list[dict]
     voice_templates: list[dict]
     digits: list[str] = []
+    digits_challenge_ready: bool = False
+    digits_cmvn_ok: bool = False
 
 
 class FaceRegisterRequest(BaseModel):

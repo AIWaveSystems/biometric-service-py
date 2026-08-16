@@ -1,9 +1,10 @@
 import numpy as np
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..biometric_guard import check_biometric_rate
 from ..biometrics.face import detector, embedder, liveness, quality
 from ..config import settings
 from ..database import get_db
@@ -128,14 +129,24 @@ def verify(
 
 @router.post("/login", response_model=FaceLoginResponse)
 def login(
+    request: Request,
     username: str = Form(...),
     frames: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ):
+    check_biometric_rate(request, "face", username)
     user = _get_user(db, username)
     templates = _templates_or_404(user)
     if not frames:
         raise HTTPException(status_code=400, detail="Se requiere al menos un frame")
+    if len(frames) < settings.liveness_min_faces:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"La captura envio muy pocos frames ({len(frames)}). "
+                f"Se necesitan al menos {settings.liveness_min_faces}. Repite la captura."
+            ),
+        )
 
     payloads = [f.file.read() for f in frames]
 

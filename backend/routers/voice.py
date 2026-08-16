@@ -1,11 +1,12 @@
 import secrets
 
 import numpy as np
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..biometrics.voice import pipeline
+from ..biometric_guard import check_biometric_rate
+from ..biometrics.voice import embedder, pipeline
 from ..config import settings
 from ..database import get_db
 from ..models import User, VoiceDigitTemplate, VoiceTemplate
@@ -63,11 +64,27 @@ def _features_from_upload(data: bytes) -> tuple[np.ndarray, float]:
         raise HTTPException(status_code=400, detail=str(e))
 
 
+def _embedding_from_audio(data: bytes) -> bytes | None:
+    """Embedding de locutor, o None si el modelo no esta o el audio no da.
+
+    Nunca hace fallar la matricula: si esto devuelve None el usuario se queda con
+    el camino MFCC+GMM de siempre, que sigue funcionando. Asi anadir el modelo no
+    rompe a nadie ya registrado.
+    """
+    if not embedder.available():
+        return None
+    try:
+        return embedder.embed(pipeline.load_audio(data)).tobytes()
+    except (ValueError, RuntimeError):
+        return None
+
+
 def build_template(user_id: int, data: bytes) -> tuple[VoiceTemplate, int, float, int]:
     feat, duration = _features_from_upload(data)
     model, self_score, self_sigma = pipeline.enroll(feat)
     template = VoiceTemplate(
         user_id=user_id,
+        embedding=_embedding_from_audio(data),
         algorithm="mfcc-gmm",
         n_components=model.n_components,
         parameters=pipeline.serialize_gmm(model),
@@ -106,10 +123,12 @@ def register(
 
 @router.post("/verify", response_model=VoiceVerifyResponse)
 def verify(
+    request: Request,
     username: str = Form(...),
     audio: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
+    check_biometric_rate(request, "voice", username)
     user = _get_user(db, username)
     tpl = (user.voice_templates or [None])[0]
     if tpl is None:
@@ -122,6 +141,32 @@ def verify(
         raise HTTPException(
             status_code=409,
             detail="Grabacion repetida detectada. Vuelve a grabar tu voz.",
+        )
+
+    if tpl.embedding and embedder.available():
+        try:
+            probe = embedder.embed(pipeline.load_audio(data))
+        except (ValueError, RuntimeError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        reference = np.frombuffer(tpl.embedding, dtype=np.float32)
+        score = embedder.similarity(probe, reference)
+        verified = score >= settings.voice_embedding_threshold
+        return VoiceVerifyResponse(
+            verified=verified,
+            username=username if verified else None,
+            uuid=str(user.uuid) if verified else None,
+            score=round(score, 4),
+            z_score=0.0,
+            ratio=round(score, 4),
+            margin=round(score, 4),
+            z_threshold=settings.voice_embedding_threshold,
+            ratio_threshold=settings.voice_embedding_threshold,
+            used_cohort=False,
+            scoring="embedding",
+            n_background_speakers=0,
+            access_token=create_session_token(username, "voice", str(user.uuid)) if verified else None,
+            expires_in=settings.session_expire_minutes * 60 if verified else None,
+            reason=None if verified else "La voz no coincide con la plantilla registrada.",
         )
 
     ubm, n_background = _background_ubm(db, tpl.user_id)
@@ -186,9 +231,19 @@ def verify(
 
 
 def _score_identity(
-    db: Session, tpl: VoiceTemplate, feat: np.ndarray
+    db: Session, tpl: VoiceTemplate, feat: np.ndarray, raw: bytes | None = None
 ) -> tuple[bool, float, str, int]:
     """Decide si la voz es del titular, con la misma logica que /verify."""
+    if tpl.embedding and embedder.available() and raw is not None:
+        try:
+            probe = embedder.embed(pipeline.load_audio(raw))
+        except (ValueError, RuntimeError):
+            probe = None
+        if probe is not None:
+            reference = np.frombuffer(tpl.embedding, dtype=np.float32)
+            score = embedder.similarity(probe, reference)
+            return score >= settings.voice_embedding_threshold, score, "embedding", 0
+
     ubm, n_background = _background_ubm(db, tpl.user_id)
     if ubm is not None:
         target = ubm.map_adapt(_unpack(tpl), relevance=pipeline.MAP_RELEVANCE)
@@ -303,11 +358,31 @@ def enroll_digits(
 def digit_status(username: str, db: Session = Depends(get_db)):
     user = _get_user(db, username)
     enrolled = sorted(t.digit for t in user.digit_templates)
+    cmvn_ok = bool(user.digit_templates) and all(t.cmvn for t in user.digit_templates)
+    needed = settings.voice_challenge_digits + 1
     return {
         "username": username,
         "enrolled": enrolled,
         "missing": [d for d in pipeline.DIGITS if d not in enrolled],
-        "ready": len(enrolled) >= settings.voice_challenge_digits + 1,
+        "cmvn_ok": cmvn_ok,
+        "ready": len(enrolled) >= needed and cmvn_ok,
+        "needed": needed,
+    }
+
+
+@router.get("/system")
+def voice_system(db: Session = Depends(get_db)):
+    n_voice_users = db.execute(
+        select(func.count(func.distinct(VoiceTemplate.user_id)))
+    ).scalar_one()
+    ubm_min_users = MIN_BACKGROUND_SPEAKERS + 1
+    return {
+        "voice_users": n_voice_users,
+        "ubm_min_users": ubm_min_users,
+        "ubm_ready": n_voice_users >= ubm_min_users,
+        "scoring_recommended": "ubm-map" if n_voice_users >= ubm_min_users else "gmm-z",
+        "challenge_digits": settings.voice_challenge_digits,
+        "challenge_min_enrolled": settings.voice_challenge_digits + 1,
     }
 
 
@@ -322,25 +397,39 @@ def delete_digits(username: str, db: Session = Depends(get_db)):
 
 
 @router.post("/challenge", response_model=VoiceChallengeResponse)
-def create_challenge(username: str = Form(...), db: Session = Depends(get_db)):
+def create_challenge(
+    request: Request,
+    username: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    check_biometric_rate(request, "voice-challenge", username)
     user = _get_user(db, username)
     if not user.voice_templates:
         raise HTTPException(status_code=404, detail="El usuario no tiene plantilla de voz")
 
     enrolled = sorted(t.digit for t in user.digit_templates)
     needed = settings.voice_challenge_digits
-    if len(enrolled) < needed + 1:
+    min_enrolled = needed + 1
+    if len(enrolled) < min_enrolled:
         raise HTTPException(
             status_code=409,
             detail=(
                 f"El usuario tiene {len(enrolled)} digitos matriculados y hacen falta "
-                f"al menos {needed + 1}. Usa POST /api/voice/digits/enroll."
+                f"al menos {min_enrolled}. Usa POST /api/voice/digits/enroll."
+            ),
+        )
+    if not all(t.cmvn for t in user.digit_templates):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "La matricula de digitos es antigua o incompleta. "
+                "Vuelve a matricular los 10 digitos desde el portal."
             ),
         )
 
     rng = secrets.SystemRandom()
     chosen = tuple(rng.sample(enrolled, needed))
-    token, ttl = challenge_store.issue(username, chosen)
+    token, ttl = challenge_store.issue(db, username, chosen)
 
     return VoiceChallengeResponse(
         challenge_id=token,
@@ -356,18 +445,14 @@ def create_challenge(username: str = Form(...), db: Session = Depends(get_db)):
 
 @router.post("/challenge/verify", response_model=VoiceChallengeVerifyResponse)
 def verify_challenge(
+    request: Request,
     username: str = Form(...),
     challenge_id: str = Form(...),
     audio: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """Verifica QUIEN habla y QUE dijo contra un desafio de un solo uso.
-
-    Una grabacion previa no puede responder digitos que el servidor eligio
-    despues de grabarla, que es justamente lo que el analisis pasivo del canal
-    no consiguio distinguir.
-    """
-    expected = challenge_store.consume(challenge_id, username)
+    check_biometric_rate(request, "voice-challenge", username)
+    expected = challenge_store.consume(db, challenge_id, username)
     if expected is None:
         raise HTTPException(
             status_code=409,
@@ -382,6 +467,14 @@ def verify_challenge(
     models, stats = _digit_models(user)
     if len(models) < 2:
         raise HTTPException(status_code=409, detail="El usuario no tiene digitos matriculados")
+    if stats is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "La matricula de digitos no tiene normalizacion guardada. "
+                "Vuelve a matricular los 10 digitos desde el portal."
+            ),
+        )
 
     data = audio.file.read()
     if not replay_guard.check_and_register(f"voice-challenge:{username}", [data]):
@@ -398,7 +491,7 @@ def verify_challenge(
         raise HTTPException(status_code=400, detail=str(e))
     segments, _ = pipeline.split_utterance(x, stats)
 
-    identity_ok, score, scoring, n_background = _score_identity(db, tpl, feat)
+    identity_ok, score, scoring, n_background = _score_identity(db, tpl, feat, data)
 
     recognised: list[str] = []
     margins: list[float] = []

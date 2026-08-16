@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..biometrics.face import detector, embedder, quality
+from ..config import settings
 from ..database import get_db
 from ..models import FaceTemplate, User
 from ..schemas import UserResponse, VoiceRegisterResponse
@@ -13,6 +14,30 @@ from .voice import build_template
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+_DIGIT_MIN = settings.voice_challenge_digits + 1
+
+
+def _user_response(u: User) -> UserResponse:
+    digits = sorted(t.digit for t in u.digit_templates)
+    cmvn_ok = bool(u.digit_templates) and all(t.cmvn for t in u.digit_templates)
+    return UserResponse(
+        username=u.username,
+        uuid=str(u.uuid),
+        has_password=bool(u.password_hash),
+        face_templates=[{"id": t.id, "algorithm": t.algorithm} for t in u.face_templates],
+        voice_templates=[
+            {
+                "id": t.id,
+                "algorithm": t.algorithm,
+                "duration_seconds": t.duration_seconds,
+            }
+            for t in u.voice_templates
+        ],
+        digits=digits,
+        digits_challenge_ready=len(digits) >= _DIGIT_MIN and cmvn_ok,
+        digits_cmvn_ok=cmvn_ok,
+    )
 
 
 @router.post("/register")
@@ -110,24 +135,7 @@ def register(
 @router.get("", response_model=list[UserResponse])
 def list_users(db: Session = Depends(get_db)):
     users = db.execute(select(User).order_by(User.username)).scalars().all()
-    return [
-        UserResponse(
-            username=u.username,
-            uuid=str(u.uuid),
-            has_password=bool(u.password_hash),
-            face_templates=[{"id": t.id, "algorithm": t.algorithm} for t in u.face_templates],
-            voice_templates=[
-                {
-                    "id": t.id,
-                    "algorithm": t.algorithm,
-                    "duration_seconds": t.duration_seconds,
-                }
-                for t in u.voice_templates
-            ],
-            digits=sorted(t.digit for t in u.digit_templates),
-        )
-        for u in users
-    ]
+    return [_user_response(u) for u in users]
 
 
 @router.get("/by-uuid/{user_uuid}", response_model=UserResponse)
@@ -135,17 +143,7 @@ def get_by_uuid(user_uuid: str, db: Session = Depends(get_db)):
     user = db.execute(select(User).where(User.uuid == user_uuid)).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return UserResponse(
-        username=user.username,
-        uuid=str(user.uuid),
-        has_password=bool(user.password_hash),
-        face_templates=[{"id": t.id, "algorithm": t.algorithm} for t in user.face_templates],
-        voice_templates=[
-            {"id": t.id, "algorithm": t.algorithm, "duration_seconds": t.duration_seconds}
-            for t in user.voice_templates
-        ],
-        digits=sorted(t.digit for t in user.digit_templates),
-    )
+    return _user_response(user)
 
 
 def _get_user(db: Session, username: str) -> User:
