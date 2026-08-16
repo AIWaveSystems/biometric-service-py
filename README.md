@@ -23,13 +23,14 @@ identidad (Apache 2.0). Ambas se ejecutan localmente, sin llamadas externas.
 3. [Configuración (.env)](#configuración-env)
 4. [Cómo funciona el reconocimiento facial](#cómo-funciona-el-reconocimiento-facial)
 5. [Cómo funciona la detección de vida](#cómo-funciona-la-detección-de-vida-liveness)
-6. [Cómo funciona el reconocimiento de voz](#cómo-funciona-el-reconocimiento-de-voz)
-7. [Modelo de seguridad](#modelo-de-seguridad)
-8. [API](#api)
-9. [Rendimiento medido](#rendimiento-medido)
-10. [Calibración de umbrales](#calibración-de-umbrales)
-11. [Scripts](#scripts)
-12. [Limitaciones conocidas](#limitaciones-conocidas)
+6. [Protocolo de captura para el cliente](#protocolo-de-captura-para-el-cliente-cualquier-lenguaje)
+7. [Cómo funciona el reconocimiento de voz](#cómo-funciona-el-reconocimiento-de-voz)
+8. [Modelo de seguridad](#modelo-de-seguridad)
+9. [API](#api)
+10. [Rendimiento medido](#rendimiento-medido)
+11. [Calibración de umbrales](#calibración-de-umbrales)
+12. [Scripts](#scripts)
+13. [Limitaciones conocidas](#limitaciones-conocidas)
 
 ---
 
@@ -278,53 +279,172 @@ descartan para la identidad, pero siguen contando para el liveness.
 
 ## Cómo funciona la detección de vida (liveness)
 
-El objetivo es distinguir una persona presente de una fotografía. El portal graba
-una ráfaga de ~28 frames en 2.6 s y pide al usuario que parpadee.
+El objetivo es distinguir una persona presente de una fotografía. El cliente graba
+una ráfaga de ~28 frames en 2.6 s y **le indica al usuario el momento exacto de
+parpadear**. Ese aviso no es cosmético: sin él, los parpadeos caen en cualquier
+punto de la ráfaga y una parte se vuelve indetectable (ver más abajo).
 
 ### La señal de apertura
 
-Un ojo abierto muestra el iris y la esclerótica, con bordes de alto contraste. Un
-ojo cerrado deja piel lisa, con muchos menos bordes. La señal se calcula con la
-magnitud del gradiente Sobel sobre la franja ocular del rostro (bandas 0.38–0.55
-en vertical, 0.15–0.85 en horizontal).
-
-**La energía absoluta no sirve.** Inclinar una fotografía saca los ojos de esa
-franja y hunde la energía, lo que el sistema leería como un parpadeo. Por eso la
-señal se **normaliza contra la región inferior del rostro** (nariz y boca, bandas
-0.60–0.88), que un parpadeo no altera:
+Un ojo abierto muestra iris y esclerótica, con bordes de alto contraste; uno
+cerrado deja piel con muchos menos bordes. La señal es la magnitud del gradiente
+Sobel sobre la banda ocular, **normalizada contra la banda de la boca**:
 
 ```
-apertura = energía_de_bordes(franja_ocular) / energía_de_bordes(región_inferior)
+apertura = energía_de_bordes(banda_ocular) / energía_de_bordes(banda_de_la_boca)
 ```
 
-Una inclinación rígida escala ambas regiones por igual y el cociente apenas se
-mueve; un parpadeo real hunde el numerador y deja el denominador intacto. Medido
-sobre una foto inclinada progresivamente:
+Una inclinación rígida de una foto escala ambas bandas por igual y el cociente
+apenas se mueve; un parpadeo real hunde el numerador y deja el denominador
+intacto. Esto es lo que cierra el ataque de la foto inclinada.
 
-| Inclinación | Energía ocular | Cociente |
-|---|---|---|
-| 0° | 67.39 | 1.563 |
-| 15° | 68.69 | 1.822 |
-| 25° | 9.25 | 1.130 |
-| 30° | 8.63 | 1.105 |
+### Las bandas se anclan a los landmarks, no a proporciones
 
-La energía absoluta cae un factor 7; el cociente solo un factor 1.4, insuficiente
-para cruzar el umbral de parpadeo.
+Ambas bandas se sitúan a partir de los **cinco puntos que devuelve YuNet** (ojos,
+nariz, comisuras) y se escalan con la **distancia interocular**, que es invariante
+a escala y encuadre.
+
+Esto no es un detalle de implementación: la versión anterior usaba fracciones
+fijas de la caja del rostro (38 %–55 % de la altura), calibradas para las cascadas
+Haar, que ampliaban el recorte un 12 %/6 %. Al pasar a YuNet, cuya caja es más
+ajustada, **los ojos quedaron fuera de la banda en 7 de 13 fotos reales** y el
+parpadeo dejó de detectarse por completo: todos los logins faciales fallaban.
+`scripts/test_liveness.py` incluye ahora una aserción de geometría que comprueba
+que los ojos caen dentro de la banda, y que fallaría si esto se rompiera de nuevo.
 
 ### La detección del parpadeo
 
-Un frame se marca como *cerrado* si su señal baja del 55 % del percentil 80 de la
-ráfaga (umbral relativo, para adaptarse a cada cámara e iluminación). Se acepta un
-parpadeo cuando aparece el patrón **abierto → cerrado → abierto** con al menos 2
-frames abiertos a cada lado y 2 cerrados en medio.
+Un frame se marca *cerrado* si su señal baja del `BLINK_CLOSED_RATIO` (86 %) del
+percentil 80 de la ráfaga: umbral relativo, para adaptarse a cada cámara y luz.
+Se acepta un parpadeo cuando concurren tres condiciones:
 
-**Los frames sin rostro detectado no cuentan como ojos cerrados.** Se marcan como
-huecos e interrumpen cualquier racha. Tratarlos como "cerrado" era explotable:
-agitar una foto impresa hace fallar la detección dos frames seguidos y eso
-bastaba para simular un parpadeo. Además se rechaza la ráfaga completa si más del
-40 % de los frames carecen de rostro, que es la firma de una foto en movimiento.
+1. Patrón **abierto → cerrado → abierto**, con al menos 2 frames cerrados
+   consecutivos y 1 frame abierto a cada lado.
+2. **Profundidad mínima de la caída** (`MIN_BLINK_DROP`, 15 %) respecto al mejor
+   valor de los 2 frames vecinos a cada lado.
+3. Ningún frame de la racha descartado por movimiento.
 
-`scripts/test_liveness.py` cubre estos ataques como pruebas de regresión.
+La condición 2 es la que distingue un parpadeo de una deriva lenta de la señal.
+Medido sobre ráfagas reales etiquetadas a mano:
+
+| Ráfaga | Caída medida | ¿Parpadeo real? |
+|---|---|---|
+| con parpadeo | 24 % – 36 % | sí |
+| deriva por movimiento | 6 % | no |
+
+El margen es de 4×, no de un par de centésimas. Sin este criterio, una ráfaga sin
+parpadeo daba falso positivo.
+
+**Solo se exige 1 frame abierto antes del cierre, no 2.** Exigir 2 hacía
+estructuralmente indetectables los parpadeos que empiezan al principio de la
+ráfaga: en las pruebas reales, 2 de cada 7 parpadeos caían ahí y **ninguna
+combinación de señal o umbral podía detectarlos**.
+
+**Los frames sin rostro no cuentan como ojos cerrados.** Se marcan como huecos e
+interrumpen cualquier racha. Tratarlos como "cerrado" era explotable: agitar una
+foto impresa hace fallar la detección dos frames seguidos y eso bastaba para
+simular un parpadeo. Se rechaza además la ráfaga completa si más del 40 % de los
+frames carecen de rostro, la firma de una foto en movimiento.
+
+### Descarte por movimiento
+
+Si el centro de los ojos se desplaza más de `MAX_MOTION_RATIO` (22 % de la
+distancia interocular) entre dos frames consecutivos, el frame se descarta. El
+desenfoque de movimiento destruye los bordes oculares igual que un párpado, y sin
+este filtro un giro brusco de cabeza se leía como parpadeo.
+
+La respuesta de `/api/face/login` incluye `n_usable` y `n_moved` para que el
+cliente pueda decirle al usuario que se quede quieto.
+
+---
+
+## Protocolo de captura para el cliente (cualquier lenguaje)
+
+El servicio es una API: el portal incluido es solo una implementación de
+referencia. Cualquier front —web, Android, iOS, escritorio— debe respetar este
+protocolo, porque **los umbrales de liveness están calibrados sobre él**.
+
+### Parámetros de la ráfaga
+
+| Parámetro | Valor | Por qué |
+|---|---|---|
+| Duración | 2.6 s | Margen para abierto → cerrado → abierto sin cansar al usuario. |
+| Cadencia | ~11 fps (28 frames) | Un parpadeo dura 100–400 ms: a 11 fps deja 2–4 frames cerrados, y el mínimo exigido es 2. |
+| Resolución | 640×480 o superior | El rostro debe dar al menos 80 px de lado tras el recorte. |
+| Formato | JPEG, calidad ≈ 0.85 | Compresión mayor destruye los bordes que mide la señal. |
+| Orden | estrictamente cronológico | La detección es temporal; desordenar los frames la invalida. |
+
+Bajar de ~8 fps hace que un parpadeo normal ocupe menos de 2 frames y deje de
+detectarse. Subir de ~15 fps no aporta y multiplica el coste de subida.
+
+### Secuencia que debe implementar el cliente
+
+```
+1. Abrir la cámara y mostrar la vista previa.
+2. Cuenta atrás de 3 s con el mensaje "Mantén los ojos abiertos".
+   (Evita que el usuario parpadee antes de que empiece la grabación.)
+3. Empezar a grabar. Mostrar "Grabando · ojos abiertos".
+4. Al 45 % de la ráfaga (~1.2 s), mostrar un aviso BIEN VISIBLE:
+   "PARPADEA AHORA".
+   Debe destacar: color de acento, tamaño grande, sobre la vista previa.
+5. Terminar la ráfaga, cerrar la cámara y enviar los frames.
+```
+
+El aviso del paso 4 es **obligatorio**. Sin él el usuario parpadea al azar y una
+fracción de los intentos cae al principio de la ráfaga, donde la detección es
+menos fiable. El portal lo implementa en `static/app.js` (`captureBurst` con
+`BLINK_CUE_AT = 0.45`) y `record_blink.py` hace lo mismo por consola.
+
+### Envío
+
+`POST /api/face/login`, `multipart/form-data`:
+
+| Campo | Contenido |
+|---|---|
+| `username` | nombre de usuario |
+| `frames` | **repetido**, un JPEG por frame, en orden |
+
+```bash
+curl -X POST http://TU_HOST/api/face/login   -H "X-API-Key: lbs_..."   -F "username=maria"   -F "frames=@f000.jpg" -F "frames=@f001.jpg" -F "frames=@f002.jpg"
+```
+
+### Respuesta
+
+```json
+{
+  "verified": true,
+  "username": "maria",
+  "uuid": "3f25ea28-...",
+  "liveness_passed": true,
+  "similarity": 0.83,
+  "threshold": 0.363,
+  "n_frames": 28,
+  "n_faces": 28,
+  "n_usable": 26,
+  "n_moved": 2,
+  "blink_detected": true,
+  "access_token": "eyJ...",
+  "expires_in": 900,
+  "reason": null
+}
+```
+
+Guarda el `uuid`: es el identificador estable del usuario. Cuando `verified` es
+`false`, `reason` trae un mensaje ya redactado para mostrar tal cual al usuario.
+
+### Cómo reaccionar a cada fallo
+
+| Situación | Qué hacer en el cliente |
+|---|---|
+| `n_faces` mucho menor que `n_frames` | Pedir que mire de frente y mejore la luz. |
+| `n_moved` alto / `n_usable` bajo | Pedir que se quede quieto y repetir. |
+| `blink_detected` false | Repetir insistiendo en parpadear **con el aviso**. |
+| `similarity` bajo el umbral | No es un problema de captura: la cara no coincide. |
+| HTTP 409 | Ráfaga repetida (anti-replay). Hay que grabar de nuevo, no reenviar. |
+| HTTP 429 | Demasiados intentos. Esperar antes de reintentar. |
+
+**Nunca reenvíes la misma ráfaga.** El servicio guarda su hash y devuelve 409:
+es la protección contra capturar el tráfico de un login válido y repetirlo.
 
 ---
 
@@ -724,16 +844,25 @@ informa del EER por separado para el z-score y para el ratio de cohorte.
 
 ### Parpadeo
 
-El umbral `BLINK_CLOSED_RATIO` de `liveness.py` no se ha podido validar con
-parpadeos reales. Para ajustarlo, guarda los frames de una captura propia y
-ejecuta:
+Los umbrales están validados con 7 ráfagas reales de **una sola persona**,
+etiquetadas frame a frame. Para recalibrar con otra cámara o con más gente:
 
 ```bash
-python scripts/diagnose_liveness.py frames_liveness
+python scripts/record_blink.py frames_liveness      # graba, avisando cuándo parpadear
+python scripts/diagnose_liveness.py frames_liveness/<carpeta>
 ```
 
-Imprime la señal de apertura de cada frame junto al umbral de corte, de forma que
-se ve directamente si el parpadeo lo cruza.
+`record_blink.py` guarda cada grabación en su propia carpeta con marca de tiempo,
+así que nunca se pisan. `diagnose_liveness.py` imprime la señal de cada frame, el
+corte y cuántos frames se descartaron por movimiento.
+
+Graba **ráfagas con parpadeo y sin él**, y alguna moviéndote a propósito: el modo
+de falso positivo conocido es el desenfoque por movimiento, no el párpado.
+
+Si un parpadeo real no se detecta, sube `BLINK_CLOSED_RATIO` o baja
+`MIN_BLINK_DROP`. Si aparecen falsos positivos, haz lo contrario. Mide siempre
+sobre varias ráfagas: con una sola es fácil fijar un valor que parece perfecto y
+no generaliza.
 
 ---
 
@@ -746,6 +875,7 @@ se ve directamente si el parpadeo lo cruza.
 | `migrate_v05.py` | Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
 | `migrate_voice.py` | Añade las columnas de calibración y limpia plantillas de voz obsoletas. |
 | `synth.py` | Genera locutores sintéticos para probar sin micrófono. |
+| `record_blink.py` | Graba una ráfaga real de parpadeo con tu webcam, con aviso de cuándo parpadear. |
 | `test_full_api.py` | Suite de integración completa contra un servidor en marcha. |
 | `test_voice.py` | Suite de matrícula y verificación de locutor. |
 | `test_liveness.py` | Suite de ataques de presentación y parpadeo. |
@@ -770,30 +900,20 @@ ejecutes contra una base con datos que quieras conservar. Acepta `BASE_URL`,
 
 ### Defectos abiertos
 
-- **La detección de parpadeo está rota tras el cambio de detector.** `openness()`
-  busca los ojos en una franja fija (38 %–55 % de la altura del recorte) calibrada
-  para la caja **Haar** anterior, que se expandía un 12 %/6 %. La caja de YuNet es
-  más ajustada y los ojos caen ahora en el 0.363–0.473 de su altura: **fuera de la
-  franja en 7 de 13 fotos reales**, y pegados al borde en el resto. El resultado es
-  que el parpadeo casi nunca se detecta y `POST /api/face/login` rechaza a usuarios
-  legítimos, aunque la identidad coincida. `POST /api/face/verify`, que no exige
-  liveness, no está afectado.
-  La solución es anclar la franja a los **landmarks de ojos que YuNet ya devuelve**,
-  en lugar de a proporciones fijas.
-- **La suite de liveness no detecta ese fallo.** `blink_sequence()` en
-  `test_full_api.py` fabrica el parpadeo difuminando la banda `0.38–0.58` de la
-  imagen: **las mismas constantes que usa el detector**. La prueba crea la señal
-  justo donde el detector la busca, así que pasa sin comprobar nunca que ahí haya
-  ojos. Debe rehacerse a partir de los landmarks.
 - **Una foto de cada 14 no se detecta** por giro de cabeza extremo. YuNet recuperó
   las 7 que perdían las cascadas Haar, pero no todas.
+- **Los umbrales de liveness salen de una sola persona.** Las 7 ráfagas usadas
+  para fijar `BLINK_CLOSED_RATIO` y `MIN_BLINK_DROP` son del mismo sujeto, cámara
+  y sala. El margen medido es amplio (caídas de 24–36 % frente a 6 % del ruido),
+  pero no está demostrado que se mantenga con otras personas, gafas o luz distinta.
+  Recalibra con `record_blink.py` antes de abrirlo a usuarios reales.
 
 ### Limitaciones de diseño
 
 - **Los umbrales están calibrados con una sola persona.** Ver
   [Calibración](#calibración-de-umbrales). Es lo primero que debe hacerse con un
   grupo real de usuarios.
-- **El liveness solo cubre ataques de fotografía**, incluso una vez arreglado.
+- **El liveness solo cubre ataques de fotografía.**
   Detecta un parpadeo, y eso descarta una foto impresa o en pantalla. **No**
   detecta un vídeo de la persona parpadeando, ni una máscara, ni un deepfake. Un
   sistema de producción necesita análisis de textura, luz estructurada o
