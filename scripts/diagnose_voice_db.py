@@ -166,6 +166,44 @@ def probar_frescos(plantillas: list[dict], rutas: list[str]) -> int:
     return 0
 
 
+def revisar_duplicados(plantillas: list[dict]) -> bool:
+    """Delata dos cuentas con la MISMA voz matriculada.
+
+    Es la causa numero uno de "el login por voz acepta a cualquiera": no falla el
+    modelo, es que las dos cuentas contienen a la misma persona, asi que una sola
+    grabacion abre las dos y el sistema esta acertando.
+    """
+    from backend.biometrics.voice import embedder
+
+    con_emb = [(p["username"], p.get("emb")) for p in plantillas if p.get("emb") is not None]
+    if len(con_emb) < 2:
+        print("\n(sin embeddings suficientes para buscar cuentas duplicadas)")
+        return False
+
+    umbral = settings.voice_duplicate_threshold
+    choques = []
+    for i, (na, va) in enumerate(con_emb):
+        for nb, vb in con_emb[i + 1 :]:
+            sim = embedder.similarity(va, vb)
+            if sim >= umbral:
+                choques.append((na, nb, sim))
+
+    if not choques:
+        print(f"\nCuentas con la misma voz: ninguna (umbral {umbral}).")
+        return False
+
+    print(f"\n!!! CUENTAS QUE COMPARTEN VOZ (umbral {umbral}) !!!")
+    for na, nb, sim in sorted(choques, key=lambda c: -c[2]):
+        print(f"  {na} <-> {nb}   similitud {sim:.3f}")
+    print(
+        "\nUna sola grabacion abre TODAS las cuentas de cada pareja. Esto NO es un\n"
+        "fallo del modelo: son la misma voz matriculada varias veces. Borra o\n"
+        "regraba las cuentas sobrantes. Desde la version con guardia de duplicados,\n"
+        "matricular una voz ya registrada devuelve 409."
+    )
+    return True
+
+
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
         print(USO)
@@ -188,6 +226,7 @@ def main() -> int:
                 "self_sigma": t.self_sigma,
                 "parameters": t.parameters,
                 "duration": t.duration_seconds,
+                "emb": None if not t.embedding else np.frombuffer(t.embedding, dtype=np.float32),
             }
             for t, nombre in rows
         ]
@@ -196,6 +235,9 @@ def main() -> int:
 
     if len(plantillas) < 2:
         print("Hacen falta al menos 2 usuarios con voz para medir nada.")
+        return 1
+
+    if revisar_duplicados(plantillas) and len(sys.argv) <= 1:
         return 1
 
     print(f"Plantillas de voz en la base: {len(plantillas)}")

@@ -11,7 +11,9 @@ class Settings(BaseSettings):
     face_threshold: float = 0.363
     voice_z_threshold: float = -2.5
     voice_llr_threshold: float = 1.2
-    voice_embedding_threshold: float = 0.40
+    voice_embedding_threshold: float = 0.35
+    voice_duplicate_threshold: float = 0.35
+    voice_reject_duplicates: bool = True
     voice_ratio_threshold: float = -3.0
 
     voice_challenge_digits: int = 4

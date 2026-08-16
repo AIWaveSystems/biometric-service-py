@@ -65,18 +65,50 @@ def _features_from_upload(data: bytes) -> tuple[np.ndarray, float]:
 
 
 def _embedding_from_audio(data: bytes) -> bytes | None:
-    """Embedding de locutor, o None si el modelo no esta o el audio no da.
-
-    Nunca hace fallar la matricula: si esto devuelve None el usuario se queda con
-    el camino MFCC+GMM de siempre, que sigue funcionando. Asi anadir el modelo no
-    rompe a nadie ya registrado.
-    """
     if not embedder.available():
         return None
     try:
         return embedder.embed(pipeline.load_audio(data)).tobytes()
     except (ValueError, RuntimeError):
         return None
+
+
+def _stored_embedding(blob: bytes | None) -> np.ndarray | None:
+    if not blob or len(blob) != embedder.EMBEDDING_DIM * 4:
+        return None
+    return np.frombuffer(blob, dtype=np.float32)
+
+
+def _enrolled_embeddings(db: Session, exclude_user_id: int | None) -> list[tuple[str, np.ndarray]]:
+    query = (
+        select(User.username, VoiceTemplate.embedding)
+        .join(VoiceTemplate, VoiceTemplate.user_id == User.id)
+        .where(VoiceTemplate.embedding.is_not(None))
+    )
+    if exclude_user_id is not None:
+        query = query.where(VoiceTemplate.user_id != exclude_user_id)
+    salida = []
+    for nombre, blob in db.execute(query).all():
+        vector = _stored_embedding(blob)
+        if vector is not None:
+            salida.append((nombre, vector))
+    return salida
+
+
+def find_duplicate_voice(
+    db: Session, embedding: bytes | None, exclude_user_id: int | None
+) -> tuple[str, float] | None:
+    probe = _stored_embedding(embedding)
+    if probe is None:
+        return None
+    mejor: tuple[str, float] | None = None
+    for nombre, referencia in _enrolled_embeddings(db, exclude_user_id):
+        score = embedder.similarity(probe, referencia)
+        if mejor is None or score > mejor[1]:
+            mejor = (nombre, score)
+    if mejor is None or mejor[1] < settings.voice_duplicate_threshold:
+        return None
+    return mejor
 
 
 def build_template(user_id: int, data: bytes) -> tuple[VoiceTemplate, int, float, int]:
@@ -105,10 +137,31 @@ def register(
     user = _get_user(db, username)
     template, n_components, duration, n_frames = build_template(user.id, audio.file.read())
 
+    duplicado = find_duplicate_voice(db, template.embedding, user.id)
+    if duplicado is not None and settings.voice_reject_duplicates:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Esta voz ya esta matriculada como '{duplicado[0]}' "
+                f"(similitud {duplicado[1]:.3f}, umbral {settings.voice_duplicate_threshold}). "
+                "Matricular la misma voz en dos cuentas hace que una sola grabacion abra "
+                "las dos. Si de verdad son personas distintas, sube el audio correcto o "
+                "revisa la matricula de esa otra cuenta."
+            ),
+        )
+
     for old in user.voice_templates:
         db.delete(old)
     db.add(template)
     db.commit()
+
+    mensaje = "Voz registrada correctamente"
+    if duplicado is not None:
+        mensaje = (
+            f"Voz registrada, PERO se parece a la de '{duplicado[0]}' "
+            f"(similitud {duplicado[1]:.3f}). Una sola grabacion podria abrir ambas cuentas."
+        )
 
     return VoiceRegisterResponse(
         username=username,
@@ -117,7 +170,9 @@ def register(
         n_components=n_components,
         duration_seconds=round(duration, 2),
         n_frames=n_frames,
-        message="Voz registrada correctamente",
+        message=mensaje,
+        duplicate_of=None if duplicado is None else duplicado[0],
+        duplicate_similarity=None if duplicado is None else round(duplicado[1], 4),
     )
 
 
@@ -143,12 +198,12 @@ def verify(
             detail="Grabacion repetida detectada. Vuelve a grabar tu voz.",
         )
 
-    if tpl.embedding and embedder.available():
+    reference = _stored_embedding(tpl.embedding)
+    if reference is not None and embedder.available():
         try:
             probe = embedder.embed(pipeline.load_audio(data))
         except (ValueError, RuntimeError) as e:
             raise HTTPException(status_code=400, detail=str(e))
-        reference = np.frombuffer(tpl.embedding, dtype=np.float32)
         score = embedder.similarity(probe, reference)
         verified = score >= settings.voice_embedding_threshold
         return VoiceVerifyResponse(
@@ -233,15 +288,14 @@ def verify(
 def _score_identity(
     db: Session, tpl: VoiceTemplate, feat: np.ndarray, raw: bytes | None = None
 ) -> tuple[bool, float, str, int]:
-    """Decide si la voz es del titular, con la misma logica que /verify."""
-    if tpl.embedding and embedder.available() and raw is not None:
+    referencia = _stored_embedding(tpl.embedding)
+    if referencia is not None and embedder.available() and raw is not None:
         try:
             probe = embedder.embed(pipeline.load_audio(raw))
         except (ValueError, RuntimeError):
             probe = None
         if probe is not None:
-            reference = np.frombuffer(tpl.embedding, dtype=np.float32)
-            score = embedder.similarity(probe, reference)
+            score = embedder.similarity(probe, referencia)
             return score >= settings.voice_embedding_threshold, score, "embedding", 0
 
     ubm, n_background = _background_ubm(db, tpl.user_id)
@@ -262,12 +316,6 @@ def _score_identity(
 
 
 def _digit_models(user: User) -> tuple[dict[str, object], tuple | None]:
-    """Modelos por digito y la normalizacion con la que se matricularon.
-
-    Sin esa normalizacion el desafio se mediria en otro espacio que la matricula.
-    Las matriculas anteriores a esta version no la tienen guardada (cmvn=None) y
-    caen al comportamiento antiguo, que funciona pero con mas error.
-    """
     modelos = {t.digit: pipeline.deserialize_gmm(t.parameters) for t in user.digit_templates}
     guardada = next((t.cmvn for t in user.digit_templates if t.cmvn), None)
     return modelos, None if guardada is None else pipeline.unpack_stats(guardada)
@@ -280,12 +328,6 @@ def enroll_digits(
     audio: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """Matricula la pronunciacion de cada digito a partir de una sola toma.
-
-    El usuario dice los digitos indicados en ese orden, con una pausa entre
-    ellos; el troceo por energia debe encontrar exactamente tantas locuciones
-    como digitos, o la toma se rechaza sin tocar lo ya matriculado.
-    """
     user = _get_user(db, username)
     wanted = [d.strip() for d in digits.split(",") if d.strip()]
     if not wanted or any(d not in pipeline.DIGITS for d in wanted):
@@ -375,12 +417,34 @@ def voice_system(db: Session = Depends(get_db)):
     n_voice_users = db.execute(
         select(func.count(func.distinct(VoiceTemplate.user_id)))
     ).scalar_one()
+    n_embedding = db.execute(
+        select(func.count(func.distinct(VoiceTemplate.user_id))).where(
+            func.length(VoiceTemplate.embedding) == embedder.EMBEDDING_DIM * 4
+        )
+    ).scalar_one()
+    modelo = embedder.available()
     ubm_min_users = MIN_BACKGROUND_SPEAKERS + 1
+    sin_embedding = n_voice_users - n_embedding
+
+    if modelo and n_embedding == n_voice_users and n_voice_users > 0:
+        scoring_active = "embedding"
+    elif n_embedding > 0 and modelo:
+        scoring_active = "mixto"
+    elif n_voice_users >= ubm_min_users:
+        scoring_active = "ubm-map"
+    else:
+        scoring_active = "gmm-z"
+
     return {
+        "embedding_model": modelo,
+        "embedding_threshold": settings.voice_embedding_threshold,
         "voice_users": n_voice_users,
+        "users_with_embedding": n_embedding,
+        "users_without_embedding": sin_embedding,
+        "scoring_active": scoring_active,
+        "needs_more_speakers": scoring_active in ("ubm-map", "gmm-z", "mixto"),
         "ubm_min_users": ubm_min_users,
         "ubm_ready": n_voice_users >= ubm_min_users,
-        "scoring_recommended": "ubm-map" if n_voice_users >= ubm_min_users else "gmm-z",
         "challenge_digits": settings.voice_challenge_digits,
         "challenge_min_enrolled": settings.voice_challenge_digits + 1,
     }
@@ -552,6 +616,33 @@ def verify_challenge(
         expires_in=settings.session_expire_minutes * 60 if verified else None,
         reason=reason,
     )
+
+
+@router.post("/identify")
+def identify(audio: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not embedder.available():
+        raise HTTPException(status_code=503, detail="El modelo de locutor no esta descargado")
+    data = audio.file.read()
+    try:
+        probe = embedder.embed(pipeline.load_audio(data))
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    puntuados = sorted(
+        ((nombre, embedder.similarity(probe, ref)) for nombre, ref in _enrolled_embeddings(db, None)),
+        key=lambda kv: kv[1],
+        reverse=True,
+    )
+    aceptados = [n for n, v in puntuados if v >= settings.voice_embedding_threshold]
+    mejor = puntuados[0] if puntuados else None
+    return {
+        "username": mejor[0] if mejor and mejor[1] >= settings.voice_embedding_threshold else None,
+        "similarity": round(mejor[1], 4) if mejor else None,
+        "threshold": settings.voice_embedding_threshold,
+        "matches": aceptados,
+        "ambiguous": len(aceptados) > 1,
+        "ranking": [{"username": n, "similarity": round(v, 4)} for n, v in puntuados[:5]],
+    }
 
 
 @router.get("/templates")

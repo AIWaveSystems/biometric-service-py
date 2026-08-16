@@ -258,6 +258,32 @@
       <section id="tab-gestion" class="panel">
         <h2>Usuarios registrados</h2>
         <div id="voice-system-banner" class="system-banner" hidden></div>
+        <div class="sensor" id="analizar-voz">
+          <h3>Analizar una voz</h3>
+          <p class="hint">
+            Graba y pregunta <strong>a quién se parece</strong> sin registrar nada.
+            Úsalo cuando una matrícula se rechace por duplicada y no entiendas por qué:
+            aquí ves la similitud contra cada cuenta y puedes descargar el audio para
+            escucharlo tal cual lo recibió el servidor.
+          </p>
+          <div class="sensor-actions">
+            <button id="analizar-btn" class="btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"></circle>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <span>Grabar y analizar (5s)</span>
+            </button>
+            <span id="analizar-state" class="state">Sin analizar</span>
+          </div>
+          <div class="playback" id="analizar-playback" hidden>
+            <label>La grabación tal cual se envió</label>
+            <audio id="analizar-audio" controls preload="metadata"></audio>
+            <p class="hint"><a id="analizar-descargar" download="voz.wav">Descargar este WAV</a></p>
+          </div>
+          <div id="analizar-result" class="result"></div>
+        </div>
+
         <button id="refresh-users" class="btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"></polyline>

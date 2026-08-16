@@ -346,7 +346,14 @@ function floatToWav(samples, sampleRate) {
 
 async function startVoice() {
   if (audioCtx) return;
-  audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  audioStream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: 1,
+    },
+  });
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   await audioCtx.resume();
   const src = audioCtx.createMediaStreamSource(audioStream);
@@ -415,16 +422,19 @@ async function handleRecording(kind, seconds, stateEl, btn, label) {
   setState(stateEl, `Grabando ${seconds}s, habla ahora…`, "busy");
   try {
     const result = await recordVoice(seconds);
-    if (result) {
-      showPlayback(kind, result.blob);
-      if (result.peak < 0.02) {
-        setState(stateEl, "Volumen muy bajo, repite", "err");
-        toast("Apenas se detecta señal. Acércate al micrófono y repite.");
-      } else {
-        setState(stateEl, `Grabado ${result.seconds.toFixed(1)}s`, "ok");
-      }
-      return result.blob;
+    if (!result) {
+      setState(stateEl, "No se pudo grabar", "err");
+      clearPlayback(kind);
+      return null;
     }
+    showPlayback(kind, result.blob);
+    if (result.peak < 0.02) {
+      setState(stateEl, "Volumen muy bajo, repite", "err");
+      toast("Apenas se detecta señal. Acércate al micrófono y repite.");
+      return null;
+    }
+    setState(stateEl, `Grabado ${result.seconds.toFixed(1)}s`, "ok");
+    return result.blob;
   } catch {
     setState(stateEl, "Micrófono no disponible", "err");
     clearPlayback(kind);
@@ -473,6 +483,7 @@ $("reg-take-photo").addEventListener("click", async () => {
 });
 
 $("reg-record").addEventListener("click", async () => {
+  window._regVoice = null;
   const blob = await handleRecording(
     "reg",
     ENROLL_SECONDS,
@@ -575,6 +586,7 @@ $("login-take-photo").addEventListener("click", async () => {
 });
 
 $("login-record").addEventListener("click", async () => {
+  window._loginVoice = null;
   const blob = await handleRecording(
     "login",
     VERIFY_SECONDS,
@@ -661,9 +673,6 @@ const CHALLENGE_LEAD = 1.5;
 const CHALLENGE_PER_DIGIT = 1.5;
 const CHALLENGE_TAIL = 1.0;
 
-/* Graba en continuo mientras muestra los digitos de uno en uno. El silencio
-   entre ellos es lo que permite trocear la toma en el servidor, asi que la
-   pausa es parte del protocolo, no decoracion. */
 async function recordPrompted(digits, cueEl) {
   const show = (text, cls) => {
     cueEl.textContent = text;
@@ -871,17 +880,26 @@ async function loadVoiceSystemBanner() {
   if (!el) return;
   try {
     const s = await api("/api/voice/system");
-    if (s.ubm_ready) {
-      el.className = "system-banner ok";
-      el.textContent =
-        `Voz: modo ubm-map disponible (${s.voice_users} locutores con plantilla). ` +
-        `Desafío de dígitos: ${s.challenge_digits} por intento, mín. ${s.challenge_min_enrolled} matriculados.`;
-    } else {
+    const cola = `Desafío de dígitos: ${s.challenge_digits} por intento, mín. ${s.challenge_min_enrolled} matriculados.`;
+    if (!s.embedding_model) {
       el.className = "system-banner warn";
       el.textContent =
-        `Voz: solo ${s.voice_users} locutor(es) con plantilla. ` +
-        `Registra al menos ${s.ubm_min_users} personas distintas para scoring ubm-map robusto ` +
-        `(ahora el login pasivo usa gmm-z, más débil).`;
+        `Voz: falta el modelo de locutor. Ejecuta "python scripts/fetch_models.py" y reinicia. ` +
+        `Mientras tanto se usa MFCC+GMM, mucho menos preciso y dependiente de cuánta gente haya registrada.`;
+    } else if (s.scoring_active === "embedding") {
+      el.className = "system-banner ok";
+      el.textContent =
+        `Voz: modo embedding (CAM++), umbral ${s.embedding_threshold}. ` +
+        `${s.voice_users} usuario(s) con voz. No hace falta registrar más gente: el modelo ya trae ` +
+        `su población de fondo. ${cola}`;
+    } else if (s.users_without_embedding > 0) {
+      el.className = "system-banner warn";
+      el.textContent =
+        `Voz: ${s.users_without_embedding} de ${s.voice_users} usuario(s) sin embedding. ` +
+        `Esos usan MFCC+GMM, más débil. Regraba su voz desde Editar → Voz para pasarlos a CAM++. ${cola}`;
+    } else {
+      el.className = "system-banner warn";
+      el.textContent = `Voz: no hay usuarios con plantilla de voz todavía. ${cola}`;
     }
     el.hidden = false;
   } catch {
@@ -895,8 +913,6 @@ function userPath(username, suffix = "") {
   return `/api/users/${encodeURIComponent(username)}${suffix}`;
 }
 
-/* El editor se construye en JS y no en el HTML porque hay uno por fila y sus
-   controles llaman a endpoints distintos con el nombre de usuario dentro. */
 function buildEditor(u, refrescar) {
   const box = document.createElement("div");
   box.className = "editor";
@@ -945,7 +961,6 @@ function buildEditor(u, refrescar) {
     return b;
   };
 
-  // --- identidad ---
   const ident = seccion(
     "Identidad",
     `UUID <code>${u.uuid}</code> — es lo que guardan los sistemas clientes. ` +
@@ -967,7 +982,6 @@ function buildEditor(u, refrescar) {
     })
   );
 
-  // --- contraseña ---
   const clave = seccion(
     "Contraseña",
     u.has_password
@@ -999,7 +1013,6 @@ function buildEditor(u, refrescar) {
     );
   }
 
-  // --- rostro ---
   const rostro = seccion(
     `Rostro — ${u.face_templates.length} plantilla(s)`,
     u.face_templates.length >= 3
@@ -1100,7 +1113,6 @@ function buildEditor(u, refrescar) {
   );
   fCam.appendChild(estadoCam);
 
-  // --- voz ---
   const voz = seccion(
     `Voz — ${u.voice_templates.length ? "matriculada" : "sin matricular"}`,
     "Registrar de nuevo REEMPLAZA la plantilla anterior: solo se guarda una por usuario."
@@ -1153,7 +1165,6 @@ function buildEditor(u, refrescar) {
     );
   }
 
-  // --- dígitos ---
   const dig = seccion(
     `Dígitos — ${u.digits.length ? u.digits.join(" ") : "sin matricular"}`,
     u.digits_challenge_ready
@@ -1208,6 +1219,56 @@ function buildEditor(u, refrescar) {
   box.appendChild(out);
   return { box, cleanup: () => closeCamera(video) };
 }
+
+$("analizar-btn").addEventListener("click", async () => {
+  const btn = $("analizar-btn");
+  const estado = $("analizar-state");
+  const out = $("analizar-result");
+  if (audioCtx) return toast("Ya hay una grabación en curso");
+
+  btn.disabled = true;
+  setBtnText(btn, "Grabando…");
+  setState(estado, `Grabando ${ENROLL_SECONDS}s, habla ahora…`, "busy");
+  out.textContent = "";
+  out.className = "result";
+  try {
+    const res = await recordVoice(ENROLL_SECONDS);
+    if (!res) throw new Error("No se pudo grabar");
+    showPlayback("analizar", res.blob);
+    $("analizar-descargar").href = playbackUrls["analizar"];
+    $("analizar-descargar").download = `voz_${Date.now()}.wav`;
+
+    const pico = (20 * Math.log10(Math.max(res.peak, 1e-9))).toFixed(1);
+    setState(estado, `Grabado ${res.seconds.toFixed(1)}s · pico ${pico} dBFS`, "ok");
+
+    const fd = new FormData();
+    fd.append("audio", res.blob, "voz.wav");
+    const r = await api("/api/voice/identify", { method: "POST", body: fd });
+
+    const filas = (r.ranking || [])
+      .map((x) => `  ${x.username.padEnd(16)} ${x.similarity.toFixed(4)}`)
+      .join("\n");
+    const veredicto = r.username
+      ? `Se parece a "${r.username}" (${r.similarity})`
+      : "No se parece a ninguna cuenta registrada";
+    showResult(
+      out,
+      r.ambiguous ? "err" : "info",
+      `${veredicto}\nUmbral: ${r.threshold} · pico ${pico} dBFS\n\n` +
+        `Similitud contra cada cuenta:\n${filas || "  (no hay cuentas con voz)"}\n\n` +
+        (r.ambiguous
+          ? `AMBIGUA: encaja en ${r.matches.length} cuentas (${r.matches.join(", ")}). ` +
+            `Esas cuentas comparten voz.`
+          : "Por encima del umbral solo puede haber una cuenta.")
+    );
+  } catch (e) {
+    setState(estado, "Error", "err");
+    showResult(out, "err", e.message);
+  } finally {
+    btn.disabled = false;
+    setBtnText(btn, `Grabar y analizar (${ENROLL_SECONDS}s)`);
+  }
+});
 
 async function loadUsers() {
   const tbody = $("users-table").querySelector("tbody");

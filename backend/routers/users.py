@@ -10,7 +10,7 @@ from ..config import settings
 from ..database import get_db
 from ..models import FaceTemplate, User
 from ..schemas import UserResponse, VoiceRegisterResponse
-from .voice import build_template
+from .voice import build_template, find_duplicate_voice
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -105,6 +105,19 @@ def register(
     voice_result = None
     if audio is not None:
         template, n_components, duration, n_frames = build_template(user.id, audio.file.read())
+
+        duplicado = find_duplicate_voice(db, template.embedding, user.id)
+        if duplicado is not None and settings.voice_reject_duplicates:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Esa voz ya esta matriculada como '{duplicado[0]}' "
+                    f"(similitud {duplicado[1]:.3f}). El usuario no se ha creado."
+                ),
+            )
+        if duplicado is not None:
+            registered.append(f"AVISO: la voz se parece a la de '{duplicado[0]}'")
         db.add(template)
         voice_result = VoiceRegisterResponse(
             username=username,
@@ -160,14 +173,6 @@ def add_faces(
     images: list[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
 ):
-    """Anade plantillas faciales a un usuario que ya existe.
-
-    A diferencia de /api/face/register, que solo da de alta, este endpoint
-    ACUMULA: mas plantillas por usuario es lo que cubre distintas condiciones de
-    luz y angulo. La redundancia se comprueba tambien contra las plantillas ya
-    guardadas, no solo contra las de esta tanda, para que subir dos veces la
-    misma foto no infle la base sin aportar nada.
-    """
     user = _get_user(db, username)
     uploads = ([image] if image is not None else []) + list(images)
     if not uploads:
@@ -229,12 +234,6 @@ def set_password(
     password: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
-    """Fija, cambia o retira la contrasena de un usuario.
-
-    Enviar el campo vacio la retira: el usuario queda solo con biometria, que es
-    un estado valido. Retirarla no es lo mismo que dejarla en blanco, porque
-    /api/auth/login rechaza a quien no tiene hash.
-    """
     user = _get_user(db, username)
     if password is not None and password != "" and len(password) < 6:
         raise HTTPException(status_code=400, detail="La contrasena debe tener 6 caracteres o mas")
@@ -250,12 +249,6 @@ def rename_user(
     new_username: str = Form(..., min_length=3, max_length=100),
     db: Session = Depends(get_db),
 ):
-    """Cambia el nombre de usuario conservando el uuid y todas las plantillas.
-
-    El uuid es el identificador que guardan los sistemas clientes precisamente
-    para que renombrar aqui no rompa sus vinculos. Un cliente que haya guardado
-    el nombre en vez del uuid si se rompe.
-    """
     user = _get_user(db, username)
     if new_username == username:
         raise HTTPException(status_code=400, detail="El nombre nuevo es el mismo")
