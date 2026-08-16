@@ -7,8 +7,10 @@ vincularlo con sus propios registros.
 
 El reconocimiento de **voz** está implementado desde cero sobre NumPy (MFCC,
 GMM-EM, UBM-MAP). El reconocimiento **facial** usa dos redes ONNX ejecutadas por
-OpenCV: **YuNet** para detectar (licencia MIT) y **SFace** para el embedding de
-identidad (Apache 2.0). Ambas se ejecutan localmente, sin llamadas externas.
+OpenCV y ONNX Runtime: **YuNet** para detectar (MIT), **SFace** para el embedding
+de identidad (Apache 2.0) y **OpenSeeFace** para los 66 landmarks faciales que
+sostienen la deteccion de parpadeo (BSD 2-clause). Las tres se ejecutan
+localmente, sin llamadas externas.
 
 > Este servicio trata **datos biométricos**, que la Ley 1581 de Colombia
 > clasifica como dato sensible. Requieren autorización previa, explícita e
@@ -55,6 +57,7 @@ backend/
   biometrics/
     face/
       embedder.py      YuNet + SFace (ONNX), instancias por hilo
+      landmarks.py     66 landmarks faciales (OpenSeeFace) y Eye Aspect Ratio
       detector.py      decodificación, recorte y normalización para calidad
       liveness.py      señal de apertura ocular y detección de parpadeo
       quality.py       puerta de calidad de captura (nitidez, tamaño, contraste)
@@ -126,7 +129,7 @@ pip install -r requirements.txt
 
 cp .env.example .env          # y rellena los valores obligatorios
 
-python scripts/fetch_models.py    # descarga YuNet y SFace (~37 MB)
+python scripts/fetch_models.py    # descarga YuNet, SFace y landmarks (~52 MB)
 python scripts/create_db.py       # crea la base en PostgreSQL
 python scripts/migrate_v05.py     # uuid de usuario, operadores y API keys
 python scripts/migrate_voice.py   # columnas de calibración de voz
@@ -135,7 +138,7 @@ uvicorn backend.main:app --reload
 ```
 
 `fetch_models.py` es **obligatorio antes del primer arranque**: los pesos ONNX no
-están versionados en git (pesan 37 MB) y el servicio se niega a arrancar si
+están versionados en git (pesan 52 MB) y el servicio se niega a arrancar si
 faltan, con un mensaje que remite a ese script. Se guardan en
 `backend/biometrics/face/models/`, dentro del proyecto. Es idempotente: si los
 ficheros ya están y su tamaño coincide, no vuelve a descargarlos.
@@ -145,6 +148,9 @@ El portal queda en `http://127.0.0.1:8000`. Las rutas `/docs`, `/redoc` y
 
 Los scripts de prueba que hablan con la API por HTTP necesitan además
 `pip install requests`.
+
+`onnxruntime` (MIT) es una dependencia nueva: OpenCV no puede cargar el modelo de
+landmarks, que usa operadores propios de ONNX Runtime.
 
 ---
 
@@ -284,56 +290,69 @@ una ráfaga de ~28 frames en 2.6 s y **le indica al usuario el momento exacto de
 parpadear**. Ese aviso no es cosmético: sin él, los parpadeos caen en cualquier
 punto de la ráfaga y una parte se vuelve indetectable (ver más abajo).
 
-### La señal de apertura
+### La señal de apertura: Eye Aspect Ratio
 
-Un ojo abierto muestra iris y esclerótica, con bordes de alto contraste; uno
-cerrado deja piel con muchos menos bordes. La señal es la magnitud del gradiente
-Sobel sobre la banda ocular, **normalizada contra la banda de la boca**:
+La apertura de cada ojo se mide con el **Eye Aspect Ratio**, calculado sobre los
+seis puntos del contorno del párpado que da el modelo de landmarks:
 
 ```
-apertura = energía_de_bordes(banda_ocular) / energía_de_bordes(banda_de_la_boca)
+EAR = (‖p2−p6‖ + ‖p3−p5‖) / (2 · ‖p1−p4‖)
 ```
 
-Una inclinación rígida de una foto escala ambas bandas por igual y el cociente
-apenas se mueve; un parpadeo real hunde el numerador y deja el denominador
-intacto. Esto es lo que cierra el ataque de la foto inclinada.
+Es decir, la altura del ojo dividida por su anchura. La señal final es la media
+de ambos ojos. Medido sobre fotos reales: **ojos cerrados 0.065–0.068, ojos
+abiertos 0.220–0.394**, sin solape.
 
-### Las bandas se anclan a los landmarks, no a proporciones
+Lo decisivo es que el EAR mide **geometría**, no contraste.
 
-Ambas bandas se sitúan a partir de los **cinco puntos que devuelve YuNet** (ojos,
-nariz, comisuras) y se escalan con la **distancia interocular**, que es invariante
-a escala y encuadre.
+### Por qué no basta con medir contraste
 
-Esto no es un detalle de implementación: la versión anterior usaba fracciones
-fijas de la caja del rostro (38 %–55 % de la altura), calibradas para las cascadas
-Haar, que ampliaban el recorte un 12 %/6 %. Al pasar a YuNet, cuya caja es más
-ajustada, **los ojos quedaron fuera de la banda en 7 de 13 fotos reales** y el
-parpadeo dejó de detectarse por completo: todos los logins faciales fallaban.
-`scripts/test_liveness.py` incluye ahora una aserción de geometría que comprueba
-que los ojos caen dentro de la banda, y que fallaría si esto se rompiera de nuevo.
+La versión anterior usaba la energía de bordes de la banda ocular, normalizada
+contra la banda de la boca. Funcionaba con buena luz y **fallaba sistemáticamente
+con luz media**. La causa, medida sobre las mismas capturas:
+
+| Sesión | Energía ojo abierto | Energía ojo cerrado | Rango útil |
+|---|---|---|---|
+| Buena luz | 30–32 | 24–25 | 20–24 % |
+| Luz media | 21–23 | 19–21 | 9–11 % |
+
+La energía de la boca (el denominador) se mantenía estable; lo que se hundía era
+el ojo **abierto**. Al bajar la luz se pierde justo lo que hace "ruidoso" a un ojo
+abierto —el borde del iris, la frontera con la esclerótica, el reflejo especular—
+mientras que el párpado cerrado es piel con textura, y la textura sobrevive mucho
+mejor. El techo de la señal caía y el suelo se quedaba: el margen se partía por la
+mitad, hasta quedar pegado al 6 % que produce la deriva por movimiento.
+
+Se probaron y **descartaron por evidencia** dos correcciones: restar el suelo de
+ruido del sensor (estimador de Immerkær) no movía la aguja, y amplificar el
+contraste local con CLAHE lo **empeoraba**, porque realza la textura del párpado
+cerrado tanto como las estructuras del ojo abierto.
+
+Por eso la señal pasó a ser geométrica. La forma del párpado no depende de la luz.
 
 ### La detección del parpadeo
 
-Un frame se marca *cerrado* si su señal baja del `BLINK_CLOSED_RATIO` (86 %) del
+Un frame se marca *cerrado* si su señal baja del `BLINK_CLOSED_RATIO` (75 %) del
 percentil 80 de la ráfaga: umbral relativo, para adaptarse a cada cámara y luz.
 Se acepta un parpadeo cuando concurren tres condiciones:
 
 1. Patrón **abierto → cerrado → abierto**, con al menos 2 frames cerrados
    consecutivos y 1 frame abierto a cada lado.
-2. **Profundidad mínima de la caída** (`MIN_BLINK_DROP`, 15 %) respecto al mejor
+2. **Profundidad mínima de la caída** (`MIN_BLINK_DROP`, 25 %) respecto al mejor
    valor de los 2 frames vecinos a cada lado.
 3. Ningún frame de la racha descartado por movimiento.
 
 La condición 2 es la que distingue un parpadeo de una deriva lenta de la señal.
 Medido sobre ráfagas reales etiquetadas a mano:
 
-| Ráfaga | Caída medida | ¿Parpadeo real? |
+| Ráfaga | EAR mínimo | ¿Parpadeo real? |
 |---|---|---|
-| con parpadeo | 24 % – 36 % | sí |
-| deriva por movimiento | 6 % | no |
+| con parpadeo (8 ráfagas) | 0.070 – 0.099 | sí |
+| sin parpadeo (3 ráfagas) | 0.222 – 0.268 | no |
 
-El margen es de 4×, no de un par de centésimas. Sin este criterio, una ráfaga sin
-parpadeo daba falso positivo.
+Separación total. El acierto es 11/11 **en toda la rejilla de parámetros
+probada** (`BLINK_CLOSED_RATIO` de 0.65 a 0.85, `MIN_BLINK_DROP` de 0.15 a 0.35),
+así que los valores por defecto no están en el filo de nada.
 
 **Solo se exige 1 frame abierto antes del cierre, no 2.** Exigir 2 hacía
 estructuralmente indetectables los parpadeos que empiezan al principio de la
@@ -902,11 +921,14 @@ ejecutes contra una base con datos que quieras conservar. Acepta `BASE_URL`,
 
 - **Una foto de cada 14 no se detecta** por giro de cabeza extremo. YuNet recuperó
   las 7 que perdían las cascadas Haar, pero no todas.
-- **Los umbrales de liveness salen de una sola persona.** Las 7 ráfagas usadas
-  para fijar `BLINK_CLOSED_RATIO` y `MIN_BLINK_DROP` son del mismo sujeto, cámara
-  y sala. El margen medido es amplio (caídas de 24–36 % frente a 6 % del ruido),
-  pero no está demostrado que se mantenga con otras personas, gafas o luz distinta.
+- **Los umbrales de liveness salen de una sola persona.** Las 11 ráfagas usadas
+  para validar `BLINK_CLOSED_RATIO` y `MIN_BLINK_DROP` son del mismo sujeto y la
+  misma cámara, en dos condiciones de luz. La separación es total (EAR 0.070–0.099
+  cerrado frente a 0.222–0.268 abierto) y el acierto es 11/11 en toda la rejilla
+  probada, pero **no está verificado con gafas, lentillas ni con otras personas**.
   Recalibra con `record_blink.py` antes de abrirlo a usuarios reales.
+- **El modelo de landmarks añade ~0.45 s de CPU por login** (16 ms × 28 frames en
+  un hilo). Es un 25 % sobre el coste que ya tenía el login facial.
 
 ### Limitaciones de diseño
 
@@ -962,7 +984,8 @@ atender miles de peticiones por minuto:
   sobre una muestra y congelarlo.
 - **`/api/face/identify` compara contra todas las plantillas.** Es una búsqueda
   lineal; a escala hace falta un índice vectorial.
-- **Un login facial cuesta ~1.8 s de CPU** para 28 frames. Se atiende en el pool
+- **Un login facial cuesta ~2.2 s de CPU** para 28 frames (1.8 s de detección y
+  reconocimiento, más 0.45 s de landmarks para el liveness). Se atiende en el pool
   de hilos, así que no bloquea el servidor, pero limita los logins simultáneos por
   instancia y condiciona el número de núcleos.
 
