@@ -1,10 +1,16 @@
 .venv/
+venv/
+env/
 __pycache__/
 *.pyc
 
 .env
 .DS_Store
+
 datos_cara/
 datos_voz/
 frames_liveness/
+
 backend/biometrics/face/models/
+
+*.log

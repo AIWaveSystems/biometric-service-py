@@ -1,9 +1,18 @@
 # Login Biométrico — Rostro y Voz
 
-Servicio de autenticación biométrica construido con FastAPI. Todos los algoritmos
-biométricos (LBP, MFCC, GMM-EM, PCA) están implementados desde cero sobre NumPy;
-OpenCV se usa únicamente para decodificar imágenes, detectar rostros con cascadas
-Haar y aplicar filtros de imagen.
+Microservicio de autenticación biométrica construido con FastAPI. Está pensado
+para usarse **desde otros sistemas**: cada sistema cliente se autentica con su
+propia API key y recibe el `uuid` del usuario como identificador estable para
+vincularlo con sus propios registros.
+
+El reconocimiento de **voz** está implementado desde cero sobre NumPy (MFCC,
+GMM-EM, UBM-MAP). El reconocimiento **facial** usa dos redes ONNX ejecutadas por
+OpenCV: **YuNet** para detectar (licencia MIT) y **SFace** para el embedding de
+identidad (Apache 2.0). Ambas se ejecutan localmente, sin llamadas externas.
+
+> Este servicio trata **datos biométricos**, que la Ley 1581 de Colombia
+> clasifica como dato sensible. Requieren autorización previa, explícita e
+> informada del titular. Ver [Limitaciones conocidas](#limitaciones-conocidas).
 
 ---
 
@@ -32,22 +41,23 @@ backend/
   config.py            configuración tipada leída de .env
   security.py          emisión/validación de JWT, anti-replay, rate limiting
   database.py          motor SQLAlchemy y sesión por petición
-  models.py            tablas users, face_templates, voice_templates
+  models.py            tablas users, portal_users, api_clients, *_templates
   schemas.py           modelos de petición/respuesta de la API
+  api_clients.py       resolución y caché de API keys contra la base de datos
   routers/
-    portal.py          login del portal (credenciales de .env)
+    portal.py          login de operadores y gestión de operadores
+    clients.py         alta, listado, rotación y revocación de API keys
     auth.py            login por contraseña
     face.py            registro, verificación, login con liveness, identificación
     voice.py           registro y verificación de locutor
-    users.py           alta combinada, listado y borrado
+    users.py           alta combinada, consulta por uuid, listado y borrado
   biometrics/
     face/
-      detector.py      detección Haar, alineación por ojos, CLAHE, normalización
-      lbph.py          patrones binarios locales uniformes multiescala
-      matcher.py       métricas de distancia y similitud
+      embedder.py      YuNet + SFace (ONNX), instancias por hilo
+      detector.py      decodificación, recorte y normalización para calidad
       liveness.py      señal de apertura ocular y detección de parpadeo
       quality.py       puerta de calidad de captura (nitidez, tamaño, contraste)
-      eigenfaces.py    PCA desde cero (implementado, no usado por la API)
+      models/          pesos ONNX (fuera de git, ver scripts/fetch_models.py)
     voice/
       wav.py           lectura de WAV PCM y remuestreo con filtro antialiasing
       mfcc.py          preénfasis, ventaneo, banco Mel, DCT-II, deltas
@@ -68,16 +78,66 @@ navegador → middleware DocsBasicAuth → middleware PortalApiAuth → router
 
 ## Instalación y arranque
 
+### Versión de Python
+
+El proyecto está desarrollado y probado sobre **Python 3.12** (en concreto
+3.12.10). No es una preferencia: `numpy 2.2.1` y `opencv-python 4.10.0.84`
+publican ruedas precompiladas para 3.12, y en otras versiones `pip` intenta
+compilar desde fuente y la instalación falla.
+
+**Si algo falla en la instalación o al arrancar, lo primero que hay que
+comprobar es la versión de Python.** Debe responder `3.12.x`:
+
 ```bash
-python -m venv .venv
+.venv\Scripts\python.exe --version
+```
+
+### Gestionar varias versiones de Python en Windows
+
+Windows permite tener varias versiones instaladas a la vez y elegir cuál usa cada
+proyecto mediante el **lanzador `py`**, que viene con el instalador oficial:
+
+```powershell
+winget install Python.Python.3.12
+```
+
+Instalado así, `py` queda disponible y se pueden listar y elegir versiones:
+
+```powershell
+py -0p              # lista todas las versiones instaladas y su ruta
+py -3.12 --version  # comprueba que la 3.12 está disponible
+```
+
+> **Aviso.** Si instalaste Python desde la **Microsoft Store**, el lanzador `py`
+> **no** se instala y `py -3.12 ...` fallará con «py no se reconoce». La Store
+> además redirige rutas de escritura a una carpeta virtualizada, lo que complica
+> los despliegues. Para producción usa la versión de `winget` (o el instalador de
+> [python.org](https://www.python.org/downloads/)) y marca «Add python.exe to
+> PATH». Puedes comprobar de dónde salió tu entorno mirando la línea `home` de
+> `.venv/pyvenv.cfg`.
+
+### Puesta en marcha
+
+```bash
+py -3.12 -m venv .venv        # o: python -m venv .venv  (si ya es 3.12)
 .venv\Scripts\activate
 pip install -r requirements.txt
 
+cp .env.example .env          # y rellena los valores obligatorios
+
+python scripts/fetch_models.py    # descarga YuNet y SFace (~37 MB)
 python scripts/create_db.py       # crea la base en PostgreSQL
-python scripts/migrate_voice.py   # aplica columnas de calibración de voz
+python scripts/migrate_v05.py     # uuid de usuario, operadores y API keys
+python scripts/migrate_voice.py   # columnas de calibración de voz
 
 uvicorn backend.main:app --reload
 ```
+
+`fetch_models.py` es **obligatorio antes del primer arranque**: los pesos ONNX no
+están versionados en git (pesan 37 MB) y el servicio se niega a arrancar si
+faltan, con un mensaje que remite a ese script. Se guardan en
+`backend/biometrics/face/models/`, dentro del proyecto. Es idempotente: si los
+ficheros ya están y su tamaño coincide, no vuelve a descargarlos.
 
 El portal queda en `http://127.0.0.1:8000`. Las rutas `/docs`, `/redoc` y
 `/openapi.json` piden Basic Auth con las credenciales de `.env`.
@@ -101,14 +161,24 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"   # para JWT_SECRET
 Sin `DATABASE_URL`, `JWT_SECRET`, `PORTAL_USER` y `PORTAL_PASSWORD` el servicio
 no arranca.
 
+`PORTAL_USER` / `PORTAL_PASSWORD` ya **no son la credencial permanente**: solo
+crean el primer operador en la base de datos si la tabla está vacía. A partir de
+ahí los operadores se gestionan desde el portal y las credenciales viven
+hasheadas en `portal_users`. Ver [Modelo de seguridad](#modelo-de-seguridad).
+
 | Variable | Por defecto | Qué hace |
 |---|---|---|
 | `DATABASE_URL` | — | Cadena de conexión de SQLAlchemy. Obligatoria. |
+| `DB_POOL_SIZE` | `20` | Conexiones permanentes del pool. |
+| `DB_MAX_OVERFLOW` | `40` | Conexiones adicionales bajo carga. |
+| `DB_POOL_RECYCLE` | `1800` | Segundos tras los que se recicla una conexión. |
 | `JWT_SECRET` | — | Clave de firma de los tokens. Obligatoria. |
 | `JWT_ALGORITHM` | `HS256` | Algoritmo de firma. |
 | `JWT_EXPIRE_MINUTES` | `60` | Vigencia del token del portal. |
 | `SESSION_EXPIRE_MINUTES` | `15` | Vigencia del token de sesión de usuario. |
-| `FACE_THRESHOLD` | `0.70` | Similitud coseno mínima para aceptar un rostro. |
+| `API_KEY_PEPPER` | vacío | Pimienta del hash de las API keys. Vacío = usa `JWT_SECRET`. |
+| `API_KEY_DEFAULT_DAYS` | `365` | Caducidad por defecto de una API key nueva. |
+| `FACE_THRESHOLD` | `0.363` | Similitud coseno mínima para aceptar un rostro. |
 | `VOICE_LLR_THRESHOLD` | `0.4` | Log-verosimilitud mínima frente al UBM (vía principal). |
 | `VOICE_Z_THRESHOLD` | `-2.5` | z-score mínimo (solo en el modo de reserva). |
 | `VOICE_RATIO_THRESHOLD` | `-3.0` | Ventaja mínima sobre la cohorte (modo de reserva). |
@@ -118,83 +188,88 @@ no arranca.
 | `AUTH_RATE_LIMIT` | `10` | Intentos de login permitidos por ventana. |
 | `AUTH_RATE_WINDOW_SECONDS` | `60` | Duración de la ventana de rate limiting. |
 | `CORS_ORIGINS` | vacío | Orígenes permitidos, separados por comas. Vacío = solo mismo origen. |
-| `PORTAL_USER` / `PORTAL_PASSWORD` | — | Credenciales de acceso al portal. Obligatorias. |
+| `PORTAL_USER` / `PORTAL_PASSWORD` | — | Operador inicial, solo si no hay ninguno. Obligatorias. |
 | `DOCS_USER` / `DOCS_PASSWORD` | heredan del portal | Credenciales de la documentación. |
 
 ---
 
 ## Cómo funciona el reconocimiento facial
 
-### 1. Detección y normalización (`detector.py`)
+### 1. Detección con YuNet (`embedder.py`)
 
-1. La imagen se decodifica y se pasa a escala de grises.
-2. Una cascada Haar frontal localiza rostros sobre la imagen ecualizada; se
-   conserva el de mayor área.
-3. El recorte se expande un 12 % en horizontal y un 6 % en vertical para incluir
-   frente y mentón.
-4. Una cascada de ojos busca ambos ojos dentro del recorte. Si los encuentra, se
-   calcula el ángulo entre sus centros y la cara se rota para dejarlos
-   horizontales. Esto elimina la variación por inclinación de cabeza.
-5. Se aplica CLAHE (ecualización adaptativa con límite de contraste), que
-   compensa iluminación desigual sin saturar zonas ya contrastadas.
-6. El resultado se reescala a 200×200.
+`cv2.FaceDetectorYN` ejecuta la red YuNet sobre la imagen en color y devuelve,
+por cada rostro, su caja y **cinco puntos de referencia**: los dos ojos, la nariz
+y las dos comisuras de la boca. Se conserva el rostro de mayor área.
 
-Separar `find_face_rect` de `normalize_face` permite detectar una sola vez por
-frame y reutilizar el rectángulo para identidad y liveness.
+Las redes de OpenCV **no son seguras entre hilos**, y FastAPI ejecuta estos
+endpoints en un pool de hilos. Por eso el módulo mantiene una instancia por hilo
+(`threading.local`) en lugar de una global compartida.
 
-### 2. Descriptor LBPH (`lbph.py`)
+### 2. Embedding de identidad con SFace
 
-Para cada píxel se comparan sus 8 vecinos situados a un radio dado; cada
-comparación aporta un bit, formando un código de 8 bits. Con radios no enteros
-los vecinos se obtienen por interpolación bilineal.
+`cv2.FaceRecognizerSF` alinea el rostro usando los cinco puntos (`alignCrop`) y
+produce un vector de **128 dimensiones**, que se normaliza L2. La identidad se
+compara con el **producto escalar** de dos vectores normalizados, es decir la
+similitud coseno, en el rango −1 a 1.
 
-Los 256 códigos posibles se reducen a **59 bins uniformes**: los 58 patrones con
-como mucho dos transiciones 0↔1 circulares, más un bin que agrupa el resto. Los
-patrones uniformes concentran la información de bordes y esquinas y son estables
-frente al ruido.
+Alinear por landmarks en vez de por proporciones fijas es lo que permite tolerar
+giros de cabeza: el recorte queda canónico independientemente de la pose.
 
-La cara se divide en una rejilla de 8×8 bloques. En cada bloque se acumula el
-histograma de 59 bins y se normaliza L2. El proceso se repite con radios 1 y 2
-para capturar textura fina y gruesa. La concatenación da un vector de
-`2 × 64 × 59 = 7552` dimensiones, normalizado L2 de nuevo.
+### 3. Por qué se sustituyó el descriptor LBPH anterior
 
-### 3. Comparación (`matcher.py`)
+Las versiones previas usaban un descriptor LBPH artesanal de 7552 dimensiones.
+Se retiró tras medirlo con **14 fotos reales de webcam** de una misma persona:
 
-Se usa **similitud coseno** entre descriptores. Medida sobre las imágenes de
-prueba del repositorio, es la métrica que mejor separa:
+| | LBPH | YuNet + SFace |
+|---|---|---|
+| Fotos detectadas | 7 / 14 | **13 / 14** |
+| Separación (3 plantillas de una misma sesión) | **−0.0105** | — |
+| Separación (3 plantillas de sesiones distintas) | +0.2194 | **+0.2268** |
 
-| Métrica | Genuino (mínimo) | Impostor | Separación |
-|---|---|---|---|
-| Coseno | 0.7734 | 0.5611 | **+0.2124** |
-| Coseno con raíz cuadrada | 0.8856 | 0.7465 | +0.1391 |
-| Chi-cuadrado | 0.4056 | 0.2587 | +0.1469 |
+Los dos hallazgos que motivaron el cambio:
 
-El módulo también expone `chi_square`, `euclidean` y `distance_to_similarity`
-para experimentar con otras métricas.
+- **LBPH no detectaba ninguna foto con la cabeza girada.** Las cascadas Haar solo
+  responden a rostros frontales, y aflojar sus parámetros producía falsos
+  positivos sobre el fondo (llegó a detectar una puerta de madera como rostro).
+- **Con fotos de una misma sesión la separación era negativa**, es decir, no
+  existía ningún umbral válido: dos fotos consecutivas de la misma persona se
+  parecían entre sí un 0.94–0.96, pero dos fotos suyas de momentos distintos solo
+  un 0.57–0.71. LBPH medía la iluminación y la pose tanto como la identidad.
 
-Cada usuario puede tener varias plantillas (el portal captura 3 fotos). La
+SFace es además mucho más compacto: 128 dimensiones frente a 7552, lo que reduce
+en ~59× el almacenamiento de plantillas y el coste de comparar.
+
+### 4. Varias plantillas por usuario
+
+Cada usuario puede tener varias plantillas (el portal captura 3 fotos) y la
 verificación toma el **máximo** de las similitudes contra todas ellas.
 
-### 4. Puerta de calidad (`quality.py`)
+Al matricular se descartan las fotos casi idénticas: si una supera una similitud
+de `0.90` con otra ya aceptada, no aporta información nueva y se rechaza. El
+portal guía al usuario para que las tres capturas varíen en pose e iluminación.
+
+### 5. Puerta de calidad (`quality.py`)
 
 Una captura mala no produce un error honesto: produce un descriptor degradado.
-Medido sobre el banco de degradaciones, dos caras **distintas** pero ambas
-borrosas se parecen más entre sí que una cara nítida y su versión borrosa. Forzar
-la detección sobre entradas malas empeoró la separación de +0.087 a −0.145.
-
-Por eso el servicio **rechaza la captura** en lugar de puntuarla, con un mensaje
-accionable:
+Dos caras **distintas** pero ambas borrosas se parecen más entre sí que una cara
+nítida y su versión borrosa. Por eso el servicio **rechaza la captura** en lugar
+de puntuarla, con un mensaje accionable:
 
 | Métrica | Mínimo | Motivo |
 |---|---|---|
-| Lado del rostro | 80 px | Rostro lejano: poca textura para el LBP. |
-| Nitidez (varianza del laplaciano) | 100 | El desenfoque es el mayor destructor de identidad. |
-| Contraste (desviación típica) | 22 | Sin contraste no hay patrones locales. |
+| Lado del rostro | 80 px | Rostro lejano: pocos píxeles para el embedding. |
+| Nitidez (varianza del laplaciano) | 70 | El desenfoque es el mayor destructor de identidad. |
+| Contraste (desviación típica) | 22 | Sin contraste no hay estructura que medir. |
 | Píxeles quemados o negros | < 28 % | Contraluz o sobreexposición. |
 
-El umbral de nitidez sale de los datos: las variantes borrosas puntúan 30 y 54,
-y la siguiente peor variante puntúa 149 con una similitud aceptable de 0.865. El
-corte en 100 separa ambos grupos sin ambigüedad.
+El umbral de nitidez está en 70 porque una webcam con la cabeza en movimiento
+puntúa 106.9: un corte más alto rechazaba capturas legítimas. Como referencia,
+las 14 fotos reales de prueba puntúan entre 79 y 306, y dan un lado de rostro de
+400–500 px.
+
+La caja de YuNet es **más ajustada** que la de las cascadas Haar anteriores, que
+se expandían artificialmente un 12 % en horizontal y un 6 % en vertical. El mismo
+umbral de 80 px es por tanto algo más estricto que antes.
 
 En el login facial la puerta se aplica **por frame**: los frames borrosos se
 descartan para la identidad, pero siguen contando para el liveness.
@@ -245,7 +320,7 @@ frames abiertos a cada lado y 2 cerrados en medio.
 
 **Los frames sin rostro detectado no cuentan como ojos cerrados.** Se marcan como
 huecos e interrumpen cualquier racha. Tratarlos como "cerrado" era explotable:
-agitar una foto impresa hace fallar la detección Haar dos frames seguidos y eso
+agitar una foto impresa hace fallar la detección dos frames seguidos y eso
 bastaba para simular un parpadeo. Además se rechaza la ráfaga completa si más del
 40 % de los frames carecen de rostro, que es la firma de una foto en movimiento.
 
@@ -372,19 +447,64 @@ esencialmente aleatorio. Se eliminó.
 
 ## Modelo de seguridad
 
-### Dos niveles de token
+### Tres formas de acceder
 
-El servicio distingue dos ámbitos mediante el campo `scope` del JWT:
+| Credencial | Cabecera | Quién la usa |
+|---|---|---|
+| Token de portal (JWT, scope `portal`) | `Authorization: Bearer …` | Operadores humanos del portal web. |
+| API key | `X-API-Key: lbs_…` | Sistemas clientes (hoteles, gestión, etc.). |
+| Token de sesión (JWT, scope `user`) | — | Identifica al usuario final ante el sistema cliente. |
 
-- **`portal`** — emitido por `/api/portal/auth` con las credenciales de `.env`.
-  Da acceso a las rutas `/api/*`. Es la credencial del operador del portal.
-- **`user`** — emitido al superar una autenticación (contraseña, rostro o voz).
-  Identifica al usuario final y **no sirve** para acceder a `/api/*`.
+El token de **sesión** se emite al superar una autenticación (contraseña, rostro
+o voz) y **no sirve** para acceder a `/api/*`: el middleware exige explícitamente
+`scope == "portal"`. Caduca en `SESSION_EXPIRE_MINUTES` (15 por defecto) e
+incluye el `uuid` del usuario en el campo `uid`, para que el sistema cliente
+pueda vincularlo con sus propios registros.
 
-El middleware exige explícitamente `scope == "portal"`, de modo que un token de
-sesión de usuario no puede usarse para listar ni borrar usuarios. Los tokens de
-sesión caducan en `SESSION_EXPIRE_MINUTES` (15 por defecto), mucho antes que los
-del portal.
+### Operadores del portal
+
+Los operadores viven en la tabla `portal_users` con la contraseña hasheada con
+bcrypt. `PORTAL_USER` / `PORTAL_PASSWORD` de `.env` solo **siembran el primer
+operador** cuando la tabla está vacía; después son irrelevantes. Desde el portal
+un operador puede crear otros, cambiar su contraseña y desactivarlos.
+
+No se puede desactivar el último operador activo: el servicio devuelve 409 en vez
+de dejar el portal inaccesible.
+
+### API keys por sistema cliente
+
+Cada sistema que consuma el servicio recibe su propia API key, creada desde el
+portal. El formato es `lbs_<prefijo>_<secreto>`:
+
+- El **prefijo** es lo que se busca en la base de datos (columna indexada).
+- El **secreto** nunca se almacena. Solo se guarda su HMAC-SHA256 con la pimienta
+  `API_KEY_PEPPER`, y se compara en tiempo constante.
+- La clave completa **se muestra una sola vez**, al crearla. No hay forma de
+  recuperarla después; si se pierde, se rota.
+
+Cada key lleva **permisos** y **caducidad**:
+
+| Permiso | Qué habilita |
+|---|---|
+| `auth` | Verificar, login e identificar. Es el uso normal de un sistema cliente. |
+| `enroll` | Además, dar de alta usuarios. |
+| `admin` | Además, listar y borrar usuarios y gestionar keys. Concédelo con cuidado. |
+
+Una key sin el permiso que exige la ruta recibe 403, no 401: el fallo es de
+autorización, no de identidad. Las keys se pueden **revocar** (desactivar) o
+**rotar** (nueva clave, la anterior deja de valer al instante).
+
+Para no consultar la base de datos en cada petición, las keys se cachean 60 s en
+memoria. Ver la nota sobre despliegue con varios procesos en
+[Limitaciones conocidas](#limitaciones-conocidas).
+
+### Identificador público de usuario
+
+Cada usuario tiene un `uuid` estable, independiente de su `id` interno y de su
+nombre. Es el identificador que deben guardar los sistemas clientes para vincular
+a la persona, y se devuelve en el alta, en las verificaciones correctas y en
+`GET /api/users/by-uuid/{uuid}`. Exponer el `id` autoincremental habría filtrado
+cuántos usuarios hay dados de alta.
 
 ### Protecciones implementadas
 
@@ -392,7 +512,11 @@ del portal.
   antes iban como parámetros de consulta y quedaban registrados en los logs de
   acceso, el historial del navegador y cualquier proxy intermedio.
 - **Comparación en tiempo constante** (`hmac.compare_digest`) para las
-  credenciales del portal y de la documentación.
+  credenciales de la documentación y para el secreto de las API keys.
+- **Alta de usuario a prueba de carreras.** Dos peticiones simultáneas con el
+  mismo nombre pasaban ambas la comprobación previa de existencia y la segunda
+  reventaba con un 500 de PostgreSQL. Ahora se captura `IntegrityError` y se
+  devuelve 409. El portal además bloquea el botón mientras envía.
 - **Verificación de contraseña contra un hash señuelo** cuando el usuario no
   existe, para que el tiempo de respuesta no revele qué usuarios están dados de
   alta.
@@ -412,26 +536,45 @@ del portal.
 
 ## API
 
-Todas las rutas `/api/*` salvo `/api/portal/auth` requieren
-`Authorization: Bearer <token de portal>`.
+Todas las rutas `/api/*` salvo `/api/portal/auth` exigen **o** un token de portal
+(`Authorization: Bearer …`) **o** una API key (`X-API-Key: lbs_…`) con el permiso
+que indica la columna «Permiso».
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| `POST` | `/api/portal/auth` | Login del portal. Devuelve token con scope `portal`. |
-| `POST` | `/api/auth/login` | Login por contraseña (JSON). Devuelve token de sesión. |
-| `POST` | `/api/users/register` | Alta con contraseña, fotos y/o audio. |
-| `GET` | `/api/users` | Lista de usuarios y sus plantillas. |
-| `DELETE` | `/api/users/{username}` | Borra usuario y plantillas en cascada. |
-| `POST` | `/api/face/register` | Alta solo con rostro. |
-| `POST` | `/api/face/verify` | Compara una foto contra un usuario. |
-| `POST` | `/api/face/login` | Login con ráfaga de frames y liveness. Devuelve token. |
-| `POST` | `/api/face/identify` | Busca a quién pertenece un rostro. |
-| `GET` | `/api/face/templates` | Lista de plantillas faciales. |
-| `DELETE` | `/api/face/templates/{id}` | Borra una plantilla facial. |
-| `POST` | `/api/voice/register` | Registra o reemplaza la plantilla de voz. |
-| `POST` | `/api/voice/verify` | Verifica al locutor. Devuelve token si acepta. |
-| `GET` | `/api/voice/templates` | Lista de plantillas de voz. |
-| `DELETE` | `/api/voice/templates/{id}` | Borra una plantilla de voz. |
+Ejemplo de llamada desde un sistema cliente:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/face/verify \
+  -H "X-API-Key: lbs_a1b2c3d4e5f6_EL_SECRETO" \
+  -F "username=maria" -F "image=@foto.jpg"
+```
+
+| Método | Ruta | Permiso | Descripción |
+|---|---|---|---|
+| `POST` | `/api/portal/auth` | — | Login de operador. Devuelve token con scope `portal`. |
+| `GET` | `/api/portal/me` | `auth` | Datos del operador del token actual. |
+| `GET` | `/api/portal/users` | `admin` | Lista de operadores del portal. |
+| `POST` | `/api/portal/users` | `admin` | Crea un operador. |
+| `POST` | `/api/portal/users/{uuid}/disable` | `admin` | Desactiva un operador. |
+| `POST` | `/api/portal/users/{uuid}/password` | `admin` | Cambia la contraseña de un operador. |
+| `POST` | `/api/clients` | `admin` | Crea una API key. Devuelve la clave **una sola vez**. |
+| `GET` | `/api/clients` | `admin` | Lista de sistemas cliente y estado de sus keys. |
+| `POST` | `/api/clients/{uuid}/revoke` | `admin` | Desactiva una API key. |
+| `POST` | `/api/clients/{uuid}/rotate` | `admin` | Genera una clave nueva e invalida la anterior. |
+| `POST` | `/api/auth/login` | `auth` | Login por contraseña (JSON). Devuelve token de sesión. |
+| `POST` | `/api/users/register` | `enroll` | Alta con contraseña, fotos y/o audio. |
+| `GET` | `/api/users` | `admin` | Lista de usuarios y sus plantillas. |
+| `GET` | `/api/users/by-uuid/{uuid}` | `auth` | Consulta un usuario por su identificador público. |
+| `DELETE` | `/api/users/{username}` | `admin` | Borra usuario y plantillas en cascada. |
+| `POST` | `/api/face/register` | `enroll` | Alta solo con rostro. |
+| `POST` | `/api/face/verify` | `auth` | Compara una foto contra un usuario. |
+| `POST` | `/api/face/login` | `auth` | Login con ráfaga de frames y liveness. Devuelve token. |
+| `POST` | `/api/face/identify` | `auth` | Busca a quién pertenece un rostro. |
+| `GET` | `/api/face/templates` | `admin` | Lista de plantillas faciales. |
+| `DELETE` | `/api/face/templates/{id}` | `admin` | Borra una plantilla facial. |
+| `POST` | `/api/voice/register` | `enroll` | Registra o reemplaza la plantilla de voz. |
+| `POST` | `/api/voice/verify` | `auth` | Verifica al locutor. Devuelve token si acepta. |
+| `GET` | `/api/voice/templates` | `admin` | Lista de plantillas de voz. |
+| `DELETE` | `/api/voice/templates/{id}` | `admin` | Borra una plantilla de voz. |
 
 Las respuestas de login incluyen `reason` con una explicación legible cuando la
 verificación falla, y `access_token` cuando tiene éxito.
@@ -440,9 +583,36 @@ verificación falla, y `access_token` cuando tiene éxito.
 
 ## Rendimiento medido
 
-Todas las cifras salen de los scripts del repositorio y son reproducibles. **Son
-datos sintéticos y de dos imágenes de prueba, no un conjunto real de personas.**
-Sirven para comparar alternativas entre sí, no para prometer una precisión.
+Todas las cifras salen de los scripts del repositorio y son reproducibles.
+
+### Rostro — `python scripts/calibrate_face.py datos_cara`
+
+14 fotos reales de webcam de **una sola persona** más 3 impostores. YuNet detecta
+13 de las 14 (la restante tiene un giro de cabeza extremo).
+
+Modo de operación real (matrícula de 3 plantillas, se compara contra la mejor),
+2860 comparaciones genuinas y 858 de impostor:
+
+| Umbral | FRR (rechazo de genuinos) | FAR (aceptación de impostores) |
+|---|---|---|
+| 0.300 | 0.00 % | 0.00 % |
+| **0.363** | **0.00 %** | **0.00 %** |
+| 0.450 | 0.24 % | 0.00 % |
+| 0.500 | 0.84 % | 0.00 % |
+
+Peor genuino 0.4058, mejor impostor 0.2599: una separación de **+0.1460**, con el
+umbral por defecto cómodamente en medio. El valor 0.363 es el que recomiendan los
+autores de SFace, no uno ajustado a esta muestra, lo que reduce el riesgo de
+sobreajustar a una sola persona.
+
+**Con una sola persona genuina y 3 impostores estas cifras no son una promesa de
+precisión en producción.** Un FAR del 0 % sobre 858 comparaciones acota el error
+real por encima de ~0.3 %, no lo demuestra nulo. Recalibra con tus usuarios.
+
+### Voz
+
+Las cifras de voz son de **locutores sintéticos**, no de personas reales. Sirven
+para comparar alternativas entre sí, no para prometer una precisión.
 
 ### Voz — `python scripts/bench_voice.py`
 
@@ -483,71 +653,26 @@ Sin normalización el sistema es perfecto mientras no cambie nada y **completame
 inútil** en cuanto cambia el micrófono o la ganancia. El CMVN cambia precisión en
 condiciones ideales por funcionar en condiciones reales.
 
-### Rostro — datos reales (14 fotos de webcam + 2 impostores)
+### Nota histórica sobre el descriptor anterior
 
-Medido con `python scripts/diagnose_face.py datos_cara`.
-
-**La diversidad de la matrícula decide si el sistema funciona.** Con las 7 fotos
-utilizables se probaron las 35 combinaciones posibles de 3 plantillas:
-
-| Matrícula | Genuino peor | Impostor mejor | Separación |
-|---|---|---|---|
-| 3 fotos del mismo momento | 0.6366 | 0.6470 | **−0.0105** |
-| 3 fotos de momentos distintos | 0.8397 | 0.6202 | **+0.2194** |
-
-**Todas** las combinaciones tomadas en el mismo momento dan separación negativa:
-no existe umbral que las haga funcionar. **Todas** las que mezclan momentos
-distintos dan separación positiva. Fotos consecutivas se parecen entre sí un
-0.94–0.96; fotos de momentos distintos, un 0.57–0.71.
-
-La causa es que el descriptor LBPH captura tanto la iluminación y la pose como la
-identidad. Tres fotos seguidas describen una sola condición, y cualquier cambio
-posterior de luz o postura cae fuera.
-
-Verificado de extremo a extremo contra el servicio:
-
-| Matrícula | Plantillas | Aciertos | Falsos rechazos | Falsos positivos |
-|---|---|---|---|---|
-| 3 fotos del mismo momento | 1 | 2 | 1 | 0 |
-| 3 fotos variadas | 2 | **4** | **0** | **0** |
-
-Con matrícula variada los genuinos puntúan 0.836–0.884 y los impostores
-0.563–0.593: margen amplio a ambos lados del umbral 0.70.
-
-Por eso el registro **descarta plantillas casi idénticas**
-(`MAX_TEMPLATE_SIMILARITY = 0.90` en `quality.py`) y el portal pide cambiar la
-distancia y la iluminación entre foto y foto.
-
-### Rostro — banco sintético `python scripts/bench_face.py`
-
-Dos identidades sometidas a 15 degradaciones (rotación, desplazamiento, gamma, luz
-lateral, JPEG, desenfoque, ruido, escala, contraste).
-
-| Configuración | Separación (mín. genuino − máx. impostor) |
-|---|---|
-| **Actual (detección Haar + CLAHE + coseno)** | **+0.0874** |
-| Detección forzada multiescala + rotaciones | −0.1446 |
-| Añadiendo alineación canónica por ojos | −0.2128 |
-| Añadiendo normalización Tan-Triggs | −0.0574 |
-
-**Ninguna de las mejoras "estándar" mejoró nada en esta prueba.** Se probaron y se
-descartaron por evidencia, no por criterio. Con solo dos identidades no es posible
-distinguir una mejora real de un artefacto, así que el descriptor se dejó como
-estaba y el esfuerzo se puso en la puerta de calidad, que sí es defendible sin
-conjunto de datos.
+Las mediciones que motivaron retirar LBPH están resumidas en
+[Por qué se sustituyó el descriptor LBPH anterior](#3-por-qué-se-sustituyó-el-descriptor-lbph-anterior).
+Los scripts que las produjeron (`bench_face.py`, `bench_metrics.py`,
+`test_lbph.py`, `test_separation.py`) se eliminaron junto con el algoritmo.
 
 ---
 
 ## Calibración de umbrales
 
-**Los umbrales por defecto son provisionales.** Están fijados a partir de dos
-imágenes de prueba y de locutores sintéticos, no de un conjunto real. Antes de
-usar el servicio con personas de verdad hay que recalibrar.
+**Los umbrales por defecto son provisionales.** El facial está validado con una
+sola persona y los de voz con locutores sintéticos. Antes de usar el servicio con
+un grupo real de personas hay que recalibrar.
 
 ### Rostro
 
 ```bash
-python scripts/calibrate_face.py datos_cara 0.70
+python scripts/calibrate_face.py datos_cara          # usa FACE_THRESHOLD del .env
+python scripts/calibrate_face.py datos_cara 0.45     # o prueba otro umbral
 ```
 
 Estructura esperada:
@@ -559,15 +684,24 @@ datos_cara/
   ...
 ```
 
-El script compara todos los pares dentro de cada persona (genuinos) y entre
-personas distintas (impostores), e informa del umbral de igual error (EER), del
-FAR y del FRR con el umbral actual. Para un portal conviene subir el umbral por
-encima del EER: es preferible pedir un segundo intento que dejar entrar a un
-impostor.
+El script informa de dos bloques. El de **todos los pares** compara cada foto con
+cada otra. El de **modo real** reproduce lo que hace de verdad la API: matricula
+3 fotos y compara el resto contra la mejor de las tres. **El segundo es el que
+importa** para elegir umbral; el primero es más pesimista porque incluye pares
+entre dos fotos malas que en producción nunca serían ambas plantillas.
 
-Conviene usar fotos de **sesiones distintas** (otro día, otra luz, otra ropa). Las
-variaciones de una misma foto dan una similitud genuina artificialmente alta y
-producen un umbral demasiado optimista.
+Para un portal conviene subir el umbral por encima del EER: es preferible pedir
+un segundo intento que dejar entrar a un impostor.
+
+Usa fotos de **sesiones distintas** (otro día, otra luz, otra ropa). Esto no es
+un consejo genérico: medido con las 14 fotos reales, matricular 3 fotos de una
+misma sesión daba una separación **negativa** con el descriptor anterior, es
+decir, ningún umbral funcionaba. Las capturas consecutivas se parecen entre sí
+por la iluminación, no por la identidad, y producen un umbral engañosamente alto
+que luego rechaza a la persona cualquier otro día.
+
+Basta una carpeta con una sola foto para que esa persona cuente como impostor;
+para medir genuinos hace falta al menos una carpeta con 2 o más.
 
 ### Voz
 
@@ -607,22 +741,24 @@ se ve directamente si el parpadeo lo cruza.
 
 | Script | Qué hace |
 |---|---|
+| `fetch_models.py` | Descarga YuNet y SFace al proyecto. Obligatorio antes del primer arranque. |
 | `create_db.py` | Crea la base de datos en PostgreSQL si no existe. |
+| `migrate_v05.py` | Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
 | `migrate_voice.py` | Añade las columnas de calibración y limpia plantillas de voz obsoletas. |
 | `synth.py` | Genera locutores sintéticos para probar sin micrófono. |
+| `test_full_api.py` | Suite de integración completa contra un servidor en marcha. |
 | `test_voice.py` | Suite de matrícula y verificación de locutor. |
 | `test_liveness.py` | Suite de ataques de presentación y parpadeo. |
-| `test_lbph.py` | Comprobaciones del descriptor LBPH. |
-| `test_separation.py` | Similitud genuino/impostor con las imágenes de ejemplo. |
-| `bench_metrics.py` | Compara métricas de distancia bajo distintas transformaciones. |
-| `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
-| `bench_face.py` | Separación facial bajo 15 degradaciones controladas. |
 | `test_replay.py` | Demuestra que una voz reproducida por altavoz se acepta. |
-| `test_api.py` | Prueba manual de los endpoints faciales. |
-| `test_full_api.py` | Suite de integración completa contra un servidor en marcha. |
+| `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
 | `calibrate_face.py` | Calcula FAR/FRR/EER faciales con datos reales. |
 | `calibrate_voice.py` | Calcula FAR/FRR/EER de voz con datos reales. |
+| `diagnose_face.py` | Detección, calidad y matriz de similitud foto a foto. |
 | `diagnose_liveness.py` | Vuelca la señal de apertura ocular frame a frame. |
+
+`migrate_v05.py` **borra las plantillas faciales del algoritmo LBPH anterior**,
+que son incompatibles con SFace. Los usuarios afectados deben volver a registrar
+la cara; el script avisa de cuántos hay.
 
 `test_full_api.py` **borra todos los usuarios** como paso de limpieza. No lo
 ejecutes contra una base con datos que quieras conservar. Acepta `BASE_URL`,
@@ -632,14 +768,36 @@ ejecutes contra una base con datos que quieras conservar. Acepta `BASE_URL`,
 
 ## Limitaciones conocidas
 
-Estas son limitaciones reales del diseño, no defectos pendientes de arreglo.
+### Defectos abiertos
 
-- **Los umbrales no están calibrados con datos reales.** Ver
-  [Calibración](#calibración-de-umbrales). Es lo primero que debe hacerse.
-- **El liveness solo cubre ataques de fotografía.** Detecta un parpadeo, y eso
-  descarta una foto impresa o en pantalla. **No** detecta un vídeo de la persona
-  parpadeando, ni una máscara, ni un deepfake. Un sistema de producción necesita
-  análisis de textura, luz estructurada o profundidad.
+- **La detección de parpadeo está rota tras el cambio de detector.** `openness()`
+  busca los ojos en una franja fija (38 %–55 % de la altura del recorte) calibrada
+  para la caja **Haar** anterior, que se expandía un 12 %/6 %. La caja de YuNet es
+  más ajustada y los ojos caen ahora en el 0.363–0.473 de su altura: **fuera de la
+  franja en 7 de 13 fotos reales**, y pegados al borde en el resto. El resultado es
+  que el parpadeo casi nunca se detecta y `POST /api/face/login` rechaza a usuarios
+  legítimos, aunque la identidad coincida. `POST /api/face/verify`, que no exige
+  liveness, no está afectado.
+  La solución es anclar la franja a los **landmarks de ojos que YuNet ya devuelve**,
+  en lugar de a proporciones fijas.
+- **La suite de liveness no detecta ese fallo.** `blink_sequence()` en
+  `test_full_api.py` fabrica el parpadeo difuminando la banda `0.38–0.58` de la
+  imagen: **las mismas constantes que usa el detector**. La prueba crea la señal
+  justo donde el detector la busca, así que pasa sin comprobar nunca que ahí haya
+  ojos. Debe rehacerse a partir de los landmarks.
+- **Una foto de cada 14 no se detecta** por giro de cabeza extremo. YuNet recuperó
+  las 7 que perdían las cascadas Haar, pero no todas.
+
+### Limitaciones de diseño
+
+- **Los umbrales están calibrados con una sola persona.** Ver
+  [Calibración](#calibración-de-umbrales). Es lo primero que debe hacerse con un
+  grupo real de usuarios.
+- **El liveness solo cubre ataques de fotografía**, incluso una vez arreglado.
+  Detecta un parpadeo, y eso descarta una foto impresa o en pantalla. **No**
+  detecta un vídeo de la persona parpadeando, ni una máscara, ni un deepfake. Un
+  sistema de producción necesita análisis de textura, luz estructurada o
+  profundidad, y certificación ISO/IEC 30107-3 si el riesgo lo justifica.
 - **La verificación de voz sigue siendo débil en términos absolutos.** El
   UBM-MAP la mejoró de 36.2 % a 19.9 % de EER, pero **un 20 % de EER significa que
   uno de cada cinco intentos se clasifica mal** en el punto de igual error. Con
@@ -649,27 +807,14 @@ Estas son limitaciones reales del diseño, no defectos pendientes de arreglo.
 - **La voz necesita población.** El UBM exige al menos 2 locutores de fondo
   distintos. Con uno o dos usuarios el sistema cae al modo de reserva, que es
   sustancialmente peor. Registra al menos 3 usuarios con voz.
-- **La detección falla con la cara girada.** `haarcascade_frontalface` solo
-  encuentra rostros de frente. Sobre 14 fotos reales de webcam, **7 no se
-  detectaron** por giro de cabeza. Ninguna cascada de OpenCV (`alt`, `alt2`,
-  `alt_tree`, `profileface`) las recupera de forma fiable, y aflojar
-  `scaleFactor`/`minNeighbors` produce **falsos positivos sobre el fondo** en vez
-  de detecciones buenas: en una prueba la cascada devolvió la puerta de madera de
-  la pared. Arreglarlo de verdad exige un detector DNN (YuNet o similar), no
-  ajustar parámetros.
 - **El reconocimiento depende críticamente de cómo se registró el usuario.** Ver
   [Rendimiento medido](#rendimiento-medido). Si la matrícula no cubre condiciones
-  variadas, no hay umbral que funcione. El filtro de redundancia mitiga el caso
+  variadas, el umbral resultante engaña. El filtro de redundancia mitiga el caso
   peor, pero no sustituye a un registro hecho con cuidado.
-- **Las mejoras habituales de LBPH no ayudaron.** Alineación canónica por ojos,
-  Tan-Triggs y detección multiescala se probaron y **empeoraron** la separación,
-  así que no se incluyeron.
 - **Las plantillas se guardan sin cifrar.** `voice_templates.features` contiene
-  MFCC crudos, de los que puede reconstruirse información de la voz. Un despliegue
-  real necesita cifrado en reposo con gestión de claves.
-- **El anti-replay vive en memoria del proceso.** Funciona con una sola instancia;
-  con varios workers o réplicas haría falta un almacén compartido tipo Redis. Lo
-  mismo aplica al rate limiter.
+  MFCC crudos y `face_templates.features` embeddings de SFace, de los que puede
+  extraerse información biométrica. Un despliegue real necesita cifrado en reposo
+  con gestión de claves.
 - **El anti-replay compara bytes exactos, y eso deja abierto el ataque real.**
   Detiene el reenvío literal de una captura, pero **no** detecta una grabación
   reproducida por altavoz ni un vídeo mostrado a la cámara. Medido con
@@ -678,11 +823,39 @@ Estas son limitaciones reales del diseño, no defectos pendientes de arreglo.
   es un fallo de calibración: un GMM modela *quién* habla, no *si está vivo*.
   Cerrarlo exige un detector de suplantación aparte (análisis de la banda alta,
   artefactos de altavoz, reverberación, o un desafío de texto aleatorio).
-- **Un único juego de credenciales para todo el portal.** Quien tenga
-  `PORTAL_USER`/`PORTAL_PASSWORD` puede listar y borrar cualquier usuario. No hay
-  roles ni auditoría.
-- **`eigenfaces.py` no se usa.** Está implementado y es funcional, pero la API
-  emplea LBPH. Se conserva como material del proyecto.
+
+### Límites de escalado
+
+Relevantes si se despliega con más de un proceso, que es lo necesario para
+atender miles de peticiones por minuto:
+
+- **Todo el estado compartido vive en memoria del proceso**: anti-replay, rate
+  limiter, caché del UBM y caché de API keys. Con varios workers o réplicas cada
+  uno tiene el suyo, así que el rate limiting se multiplica por el número de
+  procesos y el anti-replay deja de cubrir el caso en que el reenvío cae en otro
+  worker. Hace falta un almacén compartido tipo Redis.
+- **Revocar una API key tarda hasta 60 s en propagarse.** `invalidate_cache` solo
+  limpia la caché del proceso que atiende la revocación; los demás siguen
+  aceptando la key hasta que expire su entrada. Con un solo proceso es inmediato.
+- **El UBM de voz se entrena por usuario** (leave-one-out), lo que es O(N) sobre
+  el número de locutores. Con miles de usuarios hay que entrenar un UBM único
+  sobre una muestra y congelarlo.
+- **`/api/face/identify` compara contra todas las plantillas.** Es una búsqueda
+  lineal; a escala hace falta un índice vectorial.
 - **Un login facial cuesta ~1.8 s de CPU** para 28 frames. Se atiende en el pool
-  de hilos, así que no bloquea el servidor, pero limita el número de logins
-  simultáneos por instancia.
+  de hilos, así que no bloquea el servidor, pero limita los logins simultáneos por
+  instancia y condiciona el número de núcleos.
+
+### Cumplimiento legal
+
+- **Los datos biométricos son dato sensible** bajo la Ley 1581 de 2012. Su
+  tratamiento exige autorización **previa, explícita e informada** del titular, y
+  el titular puede negarse sin que se le prive del servicio. La SIC ha sancionado
+  el uso de reconocimiento facial sin esa autorización (Resolución 52185 de 2025).
+- **El servicio no implementa hoy el registro del consentimiento.** No hay tabla
+  de autorizaciones ni constancia de qué se informó ni cuándo. Debe resolverse
+  antes de tratar datos de personas reales.
+- **Si se almacenan las imágenes** (por ejemplo en MinIO), el bucket **no puede
+  ser público**: una URL pública de una foto de rostro es exactamente el escenario
+  sancionado. Usa bucket privado con URLs firmadas y caducidad. Para autenticar no
+  hace falta guardar la foto, solo la plantilla.
