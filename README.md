@@ -27,13 +27,14 @@ localmente, sin llamadas externas.
 5. [Cómo funciona la detección de vida](#cómo-funciona-la-detección-de-vida-liveness)
 6. [Protocolo de captura para el cliente](#protocolo-de-captura-para-el-cliente-cualquier-lenguaje)
 7. [Cómo funciona el reconocimiento de voz](#cómo-funciona-el-reconocimiento-de-voz)
-8. [Suplantación por grabación: el desafío de dígitos](#suplantación-por-grabación-el-desafío-de-dígitos)
-9. [Modelo de seguridad](#modelo-de-seguridad)
-10. [API](#api)
-11. [Rendimiento medido](#rendimiento-medido)
-12. [Calibración de umbrales](#calibración-de-umbrales)
-13. [Scripts](#scripts)
-14. [Limitaciones conocidas](#limitaciones-conocidas)
+8. [Verificación de locutor con embeddings (CAM++)](#verificación-de-locutor-con-embeddings-cam)
+9. [Suplantación por grabación: el desafío de dígitos](#suplantación-por-grabación-el-desafío-de-dígitos)
+10. [Modelo de seguridad](#modelo-de-seguridad)
+11. [API](#api)
+12. [Rendimiento medido](#rendimiento-medido)
+13. [Calibración de umbrales](#calibración-de-umbrales)
+14. [Scripts](#scripts)
+15. [Limitaciones conocidas](#limitaciones-conocidas)
 
 ---
 
@@ -130,7 +131,7 @@ pip install -r requirements.txt
 
 cp .env.example .env          # y rellena los valores obligatorios
 
-python scripts/fetch_models.py    # descarga YuNet, SFace y landmarks (~52 MB)
+python scripts/fetch_models.py    # YuNet, SFace, landmarks y CAM++ (~81 MB)
 python scripts/create_db.py       # crea la base en PostgreSQL
 python scripts/migrate_v05.py     # uuid de usuario, operadores y API keys
 python scripts/migrate_voice.py   # columnas de calibración de voz
@@ -188,9 +189,10 @@ hasheadas en `portal_users`. Ver [Modelo de seguridad](#modelo-de-seguridad).
 | `API_KEY_PEPPER` | vacío | Pimienta del hash de las API keys. Vacío = usa `JWT_SECRET`. |
 | `API_KEY_DEFAULT_DAYS` | `365` | Caducidad por defecto de una API key nueva. |
 | `FACE_THRESHOLD` | `0.363` | Similitud coseno mínima para aceptar un rostro. |
-| `VOICE_LLR_THRESHOLD` | `0.4` | Log-verosimilitud mínima frente al UBM (vía principal). |
+| `VOICE_LLR_THRESHOLD` | `1.2` | Log-verosimilitud mínima frente al UBM (vía principal). |
 | `VOICE_Z_THRESHOLD` | `-2.5` | z-score mínimo (solo en el modo de reserva). |
 | `VOICE_RATIO_THRESHOLD` | `-3.0` | Ventaja mínima sobre la cohorte (modo de reserva). |
+| `VOICE_EMBEDDING_THRESHOLD` | `0.40` | **Vía principal.** Coseno mínimo entre embeddings CAM++. |
 | `VOICE_CHALLENGE_DIGITS` | `4` | Dígitos que sortea el servidor en cada desafío. |
 | `VOICE_CHALLENGE_TTL_SECONDS` | `60` | Vida de un desafío emitido. Es de un solo uso. |
 | `VOICE_CHALLENGE_MAX_ERRORS` | `0` | Dígitos mal tolerados. Subirlo debilita el desafío mucho. |
@@ -659,6 +661,86 @@ Nota histórica: cuando había menos de dos usuarios, la cohorte llegó a constr
 con la **propia voz del objetivo**, comparando al usuario consigo mismo. Eso se
 eliminó, pero el caso de la voz sintética es la misma clase de error con otro
 disfraz: un fondo que no representa a «los demás».
+
+---
+
+## Verificación de locutor con embeddings (CAM++)
+
+La vía original —MFCC + GMM + UBM adaptado por MAP— tenía un techo medido de
+**~20 % de EER**, y tres problemas estructurales que no se arreglan calibrando:
+
+1. **Dependía de la población de la base.** El UBM se construye con «los demás»,
+   así que la precisión cambiaba según quién más estuviera registrado.
+2. **Costaba O(N).** Un UBM por usuario (*leave-one-out*) en cada petición.
+3. **Fallaba en silencio** cuando esa población era insuficiente o sintética.
+
+La solución es la misma que en el lado facial: un **modelo preentrenado**. Igual
+que SFace convierte una cara en un vector de 128 dimensiones, **CAM++** convierte
+una voz en uno de 512.
+
+| | Rostro | Voz |
+|---|---|---|
+| Modelo | SFace | CAM++ (WeSpeaker) |
+| Entrenado con | rostros públicos | VoxCeleb (~7 000 hablantes) |
+| Entrada | recorte alineado 112×112 | fbank 80 bandas |
+| Salida | 128-d, norma 1 | 512-d, norma 1 |
+| Comparación | coseno | coseno |
+| Licencia | Apache 2.0 | Apache 2.0 |
+| Tamaño | 38 MB | 29 MB |
+
+Lo decisivo: **la población de fondo va dentro del modelo**. No se construye
+ningún UBM, no importa quién más esté en tu base, y el coste es constante.
+
+### Medido
+
+Con 8 tomas del único hablante humano disponible:
+
+| | rango | |
+|---|---|---|
+| Mismo hablante | 0.726 – 0.965 | |
+| Audio ajeno | 0.010 – 0.254 | |
+| **Margen** | **+0.472** | 0 % FAR y 0 % FRR con umbral 0.40 |
+
+Compáralo con la vía antigua, cuyo margen era **+0.22** y encima contra
+impostores sintéticos. Y el modelo aguanta lo que hay que aguantar: bajar 20 dB
+el volumen deja la similitud en 1.000, y añadir ruido a −20 dB la deja en 0.980.
+
+Coste: **53 ms** por audio de 5 s en un hilo de CPU.
+
+> **Lo que sigue sin medirse.** Solo hay un hablante humano en estos datos, así
+> que el FAR frente a **impostores humanos** no está medido. El 0 % de arriba
+> compara habla real contra sintetizadores, que es una tarea fácil. La literatura
+> da ~0.6 % de EER para este modelo en VoxCeleb, pero eso es el modelo, no tu
+> despliegue. Registra 3+ personas reales y mide con `diagnose_voice_db.py`.
+
+### Compatibilidad
+
+Es **aditivo**. `voice_templates.embedding` es nullable:
+
+- Con embedding y modelo presente → coseno, `scoring: "embedding"`.
+- Sin embedding (matrículas anteriores) → MFCC + GMM + UBM, como siempre.
+- Sin el modelo descargado → igual, y el servicio arranca sin quejarse.
+
+El embedding se calcula al **matricular**, así que los usuarios ya registrados
+siguen por el camino antiguo hasta que vuelvan a grabar su voz. Desde el portal
+es Gestión → Editar → Voz → Grabar.
+
+El mismo camino lo usa el desafío de dígitos para la parte de identidad.
+
+### Por qué el fbank es propio y no reutiliza `mfcc.py`
+
+CAM++ espera exactamente la entrada de `kaldi.fbank(window_type='hamming')`, y
+eso impone detalles que `mfcc.py` no cumple:
+
+- Los bordes de los filtros mel van **sin cuantizar a bins enteros**; `mfcc.py`
+  los redondea. Con la versión redondeada el embedding sale desplazado.
+- El orden es: escalar a rango int16 → quitar la continua **por frame** →
+  preénfasis **dentro** del frame → ventana → log con suelo. Alterar ese orden no
+  rompe nada visible, degrada el embedding en silencio.
+- `snip_edges=True`: sin relleno al final.
+
+Por eso `fbank.py` es un módulo aparte y `mfcc.py` se queda intacto para la vía
+antigua. `scripts/test_speaker_embedding.py` comprueba cada uno de esos puntos.
 
 ---
 
@@ -1265,7 +1347,7 @@ no generaliza.
 
 | Script | Qué hace |
 |---|---|
-| `fetch_models.py` | Descarga YuNet y SFace al proyecto. Obligatorio antes del primer arranque. |
+| `fetch_models.py` | Descarga YuNet, SFace, landmarks y CAM++ al proyecto (~81 MB). Obligatorio antes del primer arranque. |
 | `create_db.py` | Crea la base de datos en PostgreSQL si no existe. |
 | `migrate_v05.py` | Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
 | `migrate_voice.py` | Añade las columnas de calibración y limpia plantillas de voz obsoletas. |
@@ -1282,6 +1364,7 @@ no generaliza.
 | `test_replay.py` | Demuestra que una voz reproducida por altavoz se acepta. |
 | `test_apikeys.py` | Valida cabecera, hash, permisos, caducidad, revocación y rotación de API keys. Revoca solo las suyas. |
 | `diagnose_voice_db.py` | Puntúa audio real contra **todas** las cuentas de la base y recomienda umbral. Solo lee. |
+| `test_speaker_embedding.py` | Valida el fbank estilo Kaldi, el embedding CAM++ y su separación. No toca la base. |
 | `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
 | `calibrate_face.py` | Calcula FAR/FRR/EER faciales con datos reales. |
 | `calibrate_voice.py` | Calcula FAR/FRR/EER de voz con datos reales. |
