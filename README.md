@@ -193,6 +193,8 @@ hasheadas en `portal_users`. Ver [Modelo de seguridad](#modelo-de-seguridad).
 | `VOICE_Z_THRESHOLD` | `-2.5` | z-score mínimo (solo en el modo de reserva). |
 | `VOICE_RATIO_THRESHOLD` | `-3.0` | Ventaja mínima sobre la cohorte (modo de reserva). |
 | `VOICE_EMBEDDING_THRESHOLD` | `0.40` | **Vía principal.** Coseno mínimo entre embeddings CAM++. |
+| `VOICE_DUPLICATE_THRESHOLD` | `0.40` | Coseno a partir del cual dos cuentas se consideran la misma voz. |
+| `VOICE_REJECT_DUPLICATES` | `true` | Rechazar con 409 la matrícula de una voz ya registrada. |
 | `VOICE_CHALLENGE_DIGITS` | `4` | Dígitos que sortea el servidor en cada desafío. |
 | `VOICE_CHALLENGE_TTL_SECONDS` | `60` | Vida de un desafío emitido. Es de un solo uso. |
 | `VOICE_CHALLENGE_MAX_ERRORS` | `0` | Dígitos mal tolerados. Subirlo debilita el desafío mucho. |
@@ -713,6 +715,49 @@ Coste: **53 ms** por audio de 5 s en un hilo de CPU.
 > da ~0.6 % de EER para este modelo en VoxCeleb, pero eso es el modelo, no tu
 > despliegue. Registra 3+ personas reales y mide con `diagnose_voice_db.py`.
 
+### La causa nº 1 de «acepta a cualquiera»: la misma voz en dos cuentas
+
+Después de instalar CAM++ el login por voz seguía dejando entrar «con cualquier
+voz». No era el modelo. La medida:
+
+```
+Coseno entre las plantillas guardadas
+  andres <-> carlos:  0.916      <- mismo hablante (rango medido: 0.726-0.965)
+
+Voces realmente ajenas contra esas mismas plantillas
+  A_1: 0.19-0.22   B_1: 0.09-0.15   C_1: 0.05-0.08
+```
+
+Las dos cuentas tenían **la misma voz matriculada**. El sistema no fallaba: estaba
+acertando. Una grabación de esa persona abre las dos cuentas porque las dos son
+esa persona. Y voces distintas sí se rechazaban, en 0.05–0.23 frente a 0.40.
+
+Nada impedía llegar a ese estado, así que ahora hay un **guardia de duplicados**:
+al matricular voz se compara el embedding nuevo contra el de **todas** las demás
+cuentas, y si alguna supera `VOICE_DUPLICATE_THRESHOLD` se responde **409** sin
+guardar nada.
+
+El umbral es deliberadamente el **mismo** que el de verificación: si una voz nueva
+alcanzaría el umbral contra otra cuenta, entonces esa otra cuenta podría entrar en
+esta. Esa es exactamente la condición que hay que impedir.
+
+Aplica en `/api/voice/register` y en `/api/users/register`. Re-grabar la voz del
+**propio** titular no se ve afectado: se excluye a sí mismo de la comparación.
+
+Para auditar una base existente:
+
+```bash
+python scripts/diagnose_voice_db.py
+```
+
+```
+!!! CUENTAS QUE COMPARTEN VOZ (umbral 0.4) !!!
+  andres <-> carlos   similitud 0.916
+```
+
+Y `POST /api/voice/identify` responde a quién pertenece una grabación, con
+`ambiguous: true` cuando encaja en más de una cuenta.
+
 ### Compatibilidad
 
 Es **aditivo**. `voice_templates.embedding` es nullable:
@@ -1061,6 +1106,7 @@ curl -X POST http://127.0.0.1:8000/api/face/verify \
 | `DELETE` | `/api/face/templates/{id}` | `admin` | Borra una plantilla facial. |
 | `POST` | `/api/voice/register` | `enroll` | Registra o reemplaza la plantilla de voz. |
 | `POST` | `/api/voice/verify` | `auth` | Verifica al locutor. Devuelve token si acepta. |
+| `POST` | `/api/voice/identify` | `auth` | A quién pertenece una voz (1:N). Marca `ambiguous` si encaja en varias. |
 | `POST` | `/api/voice/digits/enroll` | `enroll` | Matricula la pronunciación de los dígitos desde una sola toma. |
 | `GET` | `/api/voice/digits/{username}` | `auth` | Qué dígitos tiene matriculados y si puede usar el desafío. |
 | `DELETE` | `/api/voice/digits/{username}` | `admin` | Borra la matrícula de dígitos de un usuario. |
@@ -1365,6 +1411,7 @@ no generaliza.
 | `test_apikeys.py` | Valida cabecera, hash, permisos, caducidad, revocación y rotación de API keys. Revoca solo las suyas. |
 | `diagnose_voice_db.py` | Puntúa audio real contra **todas** las cuentas de la base y recomienda umbral. Solo lee. |
 | `test_speaker_embedding.py` | Valida el fbank estilo Kaldi, el embedding CAM++ y su separación. No toca la base. |
+| `test_voice_duplicates.py` | Valida el guardia de voces duplicadas contra un servidor. Crea y borra **solo** sus usuarios. |
 | `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
 | `calibrate_face.py` | Calcula FAR/FRR/EER faciales con datos reales. |
 | `calibrate_voice.py` | Calcula FAR/FRR/EER de voz con datos reales. |
