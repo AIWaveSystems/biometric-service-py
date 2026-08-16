@@ -571,16 +571,88 @@ plantillas. El modelo del locutor se re-adapta en cada verificación a partir de
 sus características almacenadas, de modo que nunca queda desfasado respecto al
 UBM vigente.
 
-**Modo de reserva.** El UBM necesita al menos 2 locutores de fondo distintos. Con
-menos usuarios registrados no hay población que modelar y el sistema cae al modo
-anterior (z-score contra la matrícula más ratio de cohorte). La respuesta indica
-cuál se usó en `scoring` (`"ubm-map"` o `"gmm-z"`) y cuántos locutores había en
-`n_background_speakers`. **La verificación de voz es notablemente más débil en
-modo de reserva**; conviene tener al menos 3 usuarios con voz registrada.
+### La población de fondo: el punto más frágil del sistema
 
-Antes, cuando había menos de dos usuarios, la cohorte se construía con la **propia
-voz del objetivo**. Eso comparaba al usuario consigo mismo y hacía el ratio
-esencialmente aleatorio. Se eliminó.
+Esta es la parte que más fácilmente se rompe en la práctica, y casi siempre por
+los **datos**, no por el código. Conviene leerla entera antes de poner voz en
+producción.
+
+El servicio tiene tres regímenes según cuántos **locutores de fondo** haya, es
+decir, cuántos usuarios con voz registrada distintos del que se verifica:
+
+| Locutores de fondo | Modo (`scoring`) | Qué decide | Fiabilidad |
+|---|---|---|---|
+| 2 o más | `ubm-map` | LLR contra el UBM | ~20 % EER (el modo bueno) |
+| 1 | `gmm-z` | z-score **y** ratio contra esa única voz | mala, y depende de quién sea esa voz |
+| 0 | `gmm-z` | solo z-score (`ratio` es `None`) | inservible |
+
+La respuesta de `/api/voice/verify` indica siempre cuál se usó en `scoring` y
+cuántos había en `n_background_speakers`. **Compruébalo**: si no pone `ubm-map`,
+la verificación no es de fiar.
+
+#### Varias grabaciones de la misma persona NO cuentan
+
+«Locutores distintos» significa **personas distintas**. Registrar tres veces tu
+propia voz con tres nombres de usuario no activa nada útil: al contrario, lo
+empeora.
+
+El UBM es un *Universal Background Model*, o sea el modelo de «cualquier otra
+persona». La decisión es una resta:
+
+```
+LLR = log P(audio | modelo del usuario) − log P(audio | modelo de fondo)
+```
+
+Si el modelo de fondo es la misma persona, la resta se anula y el sistema deja de
+discriminar. Medido troceando una grabación real en tres para simularlo:
+
+| Fondo del UBM | LLR genuino | LLR impostor | Margen |
+|---|---|---|---|
+| La misma voz (3 trozos) | 10.94 | **+3.92** | 7.03 |
+| Una voz distinta | 15.50 | −4.86 | 20.36 |
+
+Con el umbral en `0.4`, el impostor de la primera fila **entra**.
+
+#### Los locutores sintéticos contaminan la cohorte
+
+`scripts/synth.py` genera locutores sintéticos para poder probar sin micrófono, y
+`scripts/test_full_api.py` deja un usuario `alice` con voz sintética. **Son datos
+de prueba y no deben convivir con usuarios reales.**
+
+Si la única voz de fondo es sintética, el sistema compara a la persona que se
+autentica contra un tono generado por ordenador y concluye —correctamente— que se
+parece más a sí misma que a un sintetizador. El ratio sale enorme y **acepta a
+cualquiera**. Es un fallo silencioso: la API responde `verified: true` sin ninguna
+señal de alarma.
+
+Antes de registrar personas reales, borra los usuarios de prueba:
+
+```bash
+curl -X DELETE http://TU_HOST/api/users/alice -H "Authorization: Bearer <token>"
+```
+
+#### El z-score por sí solo no separa
+
+En el modo de reserva sin cohorte, la única barrera es `VOICE_Z_THRESHOLD`
+(`-2.5`). Medido con datos reales del repositorio, un impostor puntuó **−2.444**:
+pasa el umbral por **0.056**. Y bajo adaptación MAP el z-score mide **50.4 % de
+EER**, que es exactamente lanzar una moneda.
+
+Dicho de otro modo: cuando `scoring` vale `gmm-z` y `ratio` es `None`, el servicio
+no está verificando al locutor de forma significativa.
+
+#### Recomendación
+
+- **Para probar:** al menos 3 personas reales distintas con voz registrada, y cero
+  usuarios sintéticos en la misma base.
+- **Para producción:** un **UBM congelado** entrenado sobre un corpus público
+  (Mozilla Common Voice es CC0 y tiene español). Resuelve además el problema de
+  escala: hoy se entrena un UBM por usuario (*leave-one-out*), que es O(N).
+
+Nota histórica: cuando había menos de dos usuarios, la cohorte llegó a construirse
+con la **propia voz del objetivo**, comparando al usuario consigo mismo. Eso se
+eliminó, pero el caso de la voz sintética es la misma clase de error con otro
+disfraz: un fondo que no representa a «los demás».
 
 ---
 
@@ -717,6 +789,12 @@ curl -X POST http://127.0.0.1:8000/api/face/verify \
 
 Las respuestas de login incluyen `reason` con una explicación legible cuando la
 verificación falla, y `access_token` cuando tiene éxito.
+
+> **Si consumes `/api/voice/verify`, comprueba `scoring`.** El servicio responde
+> `verified: true` con normalidad aunque esté funcionando en modo degradado por
+> falta de población de fondo. Trata como no fiable cualquier respuesta cuyo
+> `scoring` no sea `"ubm-map"`, y revisa `n_background_speakers`. El porqué está en
+> [La población de fondo](#la-población-de-fondo-el-punto-más-frágil-del-sistema).
 
 ---
 
@@ -893,7 +971,7 @@ no generaliza.
 | `create_db.py` | Crea la base de datos en PostgreSQL si no existe. |
 | `migrate_v05.py` | Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
 | `migrate_voice.py` | Añade las columnas de calibración y limpia plantillas de voz obsoletas. |
-| `synth.py` | Genera locutores sintéticos para probar sin micrófono. |
+| `synth.py` | Genera locutores sintéticos para probar sin micrófono. **No mezcles su salida con usuarios reales.** |
 | `record_blink.py` | Graba una ráfaga real de parpadeo con tu webcam, con aviso de cuándo parpadear. |
 | `test_full_api.py` | Suite de integración completa contra un servidor en marcha. |
 | `test_voice.py` | Suite de matrícula y verificación de locutor. |
@@ -909,9 +987,16 @@ no generaliza.
 que son incompatibles con SFace. Los usuarios afectados deben volver a registrar
 la cara; el script avisa de cuántos hay.
 
-`test_full_api.py` **borra todos los usuarios** como paso de limpieza. No lo
-ejecutes contra una base con datos que quieras conservar. Acepta `BASE_URL`,
-`PORTAL_USER` y `PORTAL_PASSWORD` como variables de entorno.
+> **Aviso serio.** `test_full_api.py` **borra todos los usuarios** de la base como
+> paso de limpieza, y **deja un usuario `alice` con voz sintética**. Ejecutarlo
+> contra una base con usuarios reales tiene dos consecuencias: pierdes los datos, y
+> la voz sintética que queda **desarma la verificación de locutor** para todos los
+> que vuelvas a registrar (ver
+> [La población de fondo](#la-población-de-fondo-el-punto-más-frágil-del-sistema)).
+> Úsalo siempre contra una base de datos de pruebas, apuntando `DATABASE_URL` a
+> otra base antes de lanzarlo.
+
+Acepta `BASE_URL`, `PORTAL_USER` y `PORTAL_PASSWORD` como variables de entorno.
 
 ---
 
@@ -946,9 +1031,18 @@ ejecutes contra una base con datos que quieras conservar. Acepta `BASE_URL`,
   grabaciones de 3-5 segundos y un GMM diagonal no se llega mucho más lejos; los
   sistemas actuales usan embeddings neuronales (x-vectors, ECAPA). Para decisiones
   sensibles usa el modo **Rostro + Voz**.
-- **La voz necesita población.** El UBM exige al menos 2 locutores de fondo
-  distintos. Con uno o dos usuarios el sistema cae al modo de reserva, que es
-  sustancialmente peor. Registra al menos 3 usuarios con voz.
+- **La voz necesita población, y de personas distintas.** El UBM exige al menos 2
+  locutores de fondo **de personas diferentes**; varias grabaciones del mismo
+  sujeto no cuentan y empeoran el resultado (impostor con LLR +3.92 frente a un
+  umbral de 0.4, es decir, aceptado). Con menos población el sistema cae al modo de
+  reserva, donde el z-score mide 50.4 % de EER y un impostor real pasó el umbral
+  por 0.056. Un locutor **sintético** de prueba en la base produce el mismo efecto:
+  la verificación acepta a cualquiera, en silencio. Ver
+  [La población de fondo](#la-población-de-fondo-el-punto-más-frágil-del-sistema).
+- **El fallo por población insuficiente es silencioso.** El servicio informa del
+  modo en `scoring` y de la población en `n_background_speakers`, pero **no rechaza
+  ni avisa** cuando está degradado: responde `verified: true` con normalidad. El
+  cliente debe comprobar `scoring == "ubm-map"` por su cuenta.
 - **El reconocimiento depende críticamente de cómo se registró el usuario.** Ver
   [Rendimiento medido](#rendimiento-medido). Si la matrícula no cubre condiciones
   variadas, el umbral resultante engaña. El filtro de redundancia mitiga el caso
