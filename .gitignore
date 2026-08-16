@@ -19,3 +19,6 @@ backend/biometrics/voice/models/
 
 *.log
 datos_otros/
+
+site/
+.cache/

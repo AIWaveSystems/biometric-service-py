@@ -1,0 +1,30 @@
+# Propietarios por defecto: revisan todo PR.
+# Reemplaza @tu-usuario-github por los handles reales antes de activarlo.
+# Requiere que el repo tenga "Require review from Code Owners" en la protección de rama.
+
+# *                              @tu-usuario-github
+
+# Motores biométricos: cualquier cambio aquí mueve umbrales y tasas de error.
+# Exige revisión de quien pueda remedir con scripts/diagnose_*.py y calibrate_*.py.
+# /backend/biometrics/           @tu-usuario-github
+
+# Middleware de autenticación, API keys, JWT y limitadores.
+# /backend/main.py               @tu-usuario-github
+# /backend/security.py           @tu-usuario-github
+# /backend/api_clients.py        @tu-usuario-github
+# /backend/biometric_guard.py    @tu-usuario-github
+
+# Umbrales y variables de entorno. Un valor mal puesto aquí abre el sistema en silencio.
+# /backend/config.py             @tu-usuario-github
+# /.env.example                  @tu-usuario-github
+
+# Esquema de base de datos y migraciones.
+# /backend/models.py             @tu-usuario-github
+# /scripts/migrate_*.py          @tu-usuario-github
+
+# Documentación pública y su despliegue.
+# /docs/                         @tu-usuario-github
+# /mkdocs.yml                    @tu-usuario-github
+
+# Configuración de CI/CD.
+# /.github/                      @tu-usuario-github

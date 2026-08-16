@@ -1,0 +1,185 @@
+name: test build on push and pull request
+
+on:
+  pull_request:
+    branches: [develop, test, main]
+  push:
+    branches: [develop, test, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Instalar ruff
+        run: pip install ruff==0.8.4
+
+      - name: Ruff check
+        run: ruff check .
+
+  tests-offline:
+    name: Pruebas sin servidor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Dependencias de sistema para OpenCV
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0
+
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+
+      - name: Cachear modelos ONNX
+        id: cache-modelos
+        uses: actions/cache@v4
+        with:
+          path: |
+            backend/biometrics/face/models
+            backend/biometrics/voice/models
+          key: modelos-onnx-${{ hashFiles('scripts/fetch_models.py') }}
+
+      - name: Descargar modelos ONNX
+        if: steps.cache-modelos.outputs.cache-hit != 'true'
+        run: python scripts/fetch_models.py
+
+      - name: Deteccion de vida
+        run: python scripts/test_liveness.py
+
+      - name: Canal de voz
+        run: python scripts/test_voice.py
+
+      - name: Digitos
+        run: python scripts/test_digits.py
+
+      - name: Reproduccion por altavoz
+        run: python scripts/test_replay.py
+
+      - name: Embedding de locutor
+        run: python scripts/test_speaker_embedding.py
+
+  tests-api:
+    name: Pruebas de API
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: biometrico
+          POSTGRES_PASSWORD: biometrico
+          POSTGRES_DB: auth_biometric
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg2://biometrico:biometrico@localhost:5432/auth_biometric
+      JWT_SECRET: clave-solo-para-integracion-continua-no-usar-en-produccion
+      API_KEY_PEPPER: pimienta-solo-para-integracion-continua
+      PORTAL_USER: admin
+      PORTAL_PASSWORD: admin123
+      BASE_URL: http://127.0.0.1:8000
+      VOICE_REJECT_DUPLICATES: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Dependencias de sistema para OpenCV
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0
+
+      - name: Instalar dependencias
+        run: pip install -r requirements-dev.txt
+
+      - name: Cachear modelos ONNX
+        id: cache-modelos
+        uses: actions/cache@v4
+        with:
+          path: |
+            backend/biometrics/face/models
+            backend/biometrics/voice/models
+          key: modelos-onnx-${{ hashFiles('scripts/fetch_models.py') }}
+
+      - name: Descargar modelos ONNX
+        if: steps.cache-modelos.outputs.cache-hit != 'true'
+        run: python scripts/fetch_models.py
+
+      - name: Arrancar el servicio
+        run: |
+          nohup uvicorn backend.main:app --host 127.0.0.1 --port 8000 --log-level warning \
+            > uvicorn.log 2>&1 &
+          echo $! > uvicorn.pid
+          for i in $(seq 1 40); do
+            if curl -sf http://127.0.0.1:8000/health > /dev/null; then
+              echo "Servicio listo tras ${i} intentos"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "El servicio no respondio a /health"
+          cat uvicorn.log
+          exit 1
+
+      - name: API completa
+        run: python scripts/test_full_api.py
+
+      - name: API keys y permisos
+        run: python scripts/test_apikeys.py
+
+      - name: Desafio de digitos
+        run: python scripts/test_challenge_api.py
+
+      - name: Voces duplicadas
+        run: python scripts/test_voice_duplicates.py
+
+      - name: Registro del servicio
+        if: failure()
+        run: cat uvicorn.log
+
+      - name: Parar el servicio
+        if: always()
+        run: kill "$(cat uvicorn.pid)" || true
+
+  build:
+    name: Build de imagen
+    runs-on: ubuntu-latest
+    needs: [lint, tests-offline]
+    if: hashFiles('Dockerfile') != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construir imagen
+        run: docker build -t login-biometrico-service:${{ github.sha }} .
