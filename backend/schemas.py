@@ -25,6 +25,8 @@ class FaceLoginResponse(BaseModel):
     threshold: float
     n_frames: int
     n_faces: int
+    n_usable: int = 0
+    n_moved: int = 0
     blink_detected: bool
     access_token: str | None = None
     token_type: str = "bearer"

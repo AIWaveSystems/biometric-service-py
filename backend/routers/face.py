@@ -152,7 +152,7 @@ def login(
         if face is None:
             sequence.append(None)
             continue
-        sequence.append((detector.to_gray(img), face))
+        sequence.append((img, face))
         rect = embedder.face_rect(face, img.shape)
         normalized = detector.normalize_face(img, rect)
         problem = quality.check(quality.measure(normalized, rect))
@@ -214,6 +214,8 @@ def login(
         threshold=settings.face_threshold,
         n_frames=result["n_frames"],
         n_faces=result["n_faces"],
+        n_usable=result["n_usable"],
+        n_moved=result["n_moved"],
         blink_detected=blink,
         access_token=create_session_token(username, "face", str(user.uuid)) if verified else None,
         expires_in=settings.session_expire_minutes * 60 if verified else None,

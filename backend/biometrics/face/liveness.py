@@ -1,26 +1,16 @@
-import cv2
 import numpy as np
 
-BLINK_CLOSED_RATIO = 0.86
+from . import landmarks as lm
+
+BLINK_CLOSED_RATIO = 0.75
 MIN_OPEN_FRAMES = 1
 MIN_CLOSED_FRAMES = 2
-MIN_BLINK_DROP = 0.15
+MIN_BLINK_DROP = 0.25
 DROP_WINDOW = 2
 MIN_FACES = 6
 MAX_GAP_RATIO = 0.4
 
-EYE_BAND = 0.38
-MOUTH_BAND = 0.38
-BAND_MARGIN = 0.35
 MAX_MOTION_RATIO = 0.22
-
-
-def _edge_energy(strip: np.ndarray) -> float:
-    if strip.size == 0:
-        return 0.0
-    gx = cv2.Sobel(strip, cv2.CV_64F, 1, 0, ksize=3)
-    gy = cv2.Sobel(strip, cv2.CV_64F, 0, 1, ksize=3)
-    return float(np.hypot(gx, gy).mean())
 
 
 def landmarks(face: np.ndarray) -> dict:
@@ -37,29 +27,17 @@ def landmarks(face: np.ndarray) -> dict:
     }
 
 
-def _band(gray: np.ndarray, marks: dict, center_y: float, half: float) -> np.ndarray:
-    d = marks["interocular"]
-    x0 = min(marks["right_eye"][0], marks["left_eye"][0]) - BAND_MARGIN * d
-    x1 = max(marks["right_eye"][0], marks["left_eye"][0]) + BAND_MARGIN * d
-    r0 = max(0, int(round(center_y - half * d)))
-    r1 = min(gray.shape[0], int(round(center_y + half * d)))
-    c0 = max(0, int(round(x0)))
-    c1 = min(gray.shape[1], int(round(x1)))
-    return gray[r0:r1, c0:c1]
+def openness(image: np.ndarray, face: np.ndarray) -> float | None:
+    """Apertura ocular = Eye Aspect Ratio sobre los landmarks del parpado.
 
-
-def openness(gray: np.ndarray, face: np.ndarray) -> float | None:
+    Mide la GEOMETRIA del ojo, no su contraste. Es lo que permite que funcione
+    con poca luz: la version anterior media energia de bordes, y el contraste es
+    justo lo que la falta de luz se lleva.
+    """
     marks = landmarks(face)
     if marks["interocular"] < 8.0:
         return None
-    eyes = _band(gray, marks, marks["eye_center"][1], EYE_BAND)
-    mouth = _band(gray, marks, marks["mouth_center"][1], MOUTH_BAND)
-    if eyes.size == 0 or mouth.size == 0:
-        return None
-    reference = _edge_energy(mouth)
-    if reference < 1e-3:
-        return None
-    return _edge_energy(eyes) / reference
+    return lm.openness(image, face)
 
 
 def _motion_mask(faces: list[np.ndarray | None]) -> list[bool]:
@@ -142,8 +120,8 @@ def analyze(
         if item is None or moved[i]:
             signals.append(None)
             continue
-        gray, face = item
-        signals.append(openness(gray, face))
+        image, face = item
+        signals.append(openness(image, face))
 
     n_frames = len(frames)
     n_faces = sum(1 for f in frames if f is not None)

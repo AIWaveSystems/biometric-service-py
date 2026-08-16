@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .api_clients import resolve_api_key
-from .biometrics.face import embedder
+from .biometrics.face import embedder, landmarks as face_landmarks
 from .config import settings
 from .database import Base, SessionLocal, engine, get_db
 from .routers import auth, clients, face, portal, users, voice
@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
     ]
     if missing:
         raise RuntimeError(f"Faltan variables en el archivo .env: {', '.join(missing)}")
-    if not embedder.available():
+    if not (embedder.available() and face_landmarks.available()):
         raise RuntimeError(
             "Faltan los modelos ONNX de reconocimiento facial. "
             "Ejecuta: python scripts/fetch_models.py"
@@ -169,7 +169,7 @@ def health(db=Depends(get_db)):
         db_ok = True
     except Exception:
         pass
-    models_ok = embedder.available()
+    models_ok = embedder.available() and face_landmarks.available()
     status = "ok" if db_ok and models_ok else "degraded"
     code = 200 if status == "ok" else 503
     return JSONResponse(
