@@ -12,7 +12,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .api_clients import resolve_api_key
-from .biometrics.face import embedder, landmarks as face_landmarks
+from .biometrics.face import embedder
+from .biometrics.face import landmarks as face_landmarks
 from .config import settings
 from .database import Base, SessionLocal, engine, get_db
 from .routers import auth, clients, face, portal, users, voice

@@ -1,7 +1,12 @@
-import sys; sys.path.insert(0,".")
+import sys
+
+sys.path.insert(0, ".")
+
 import numpy as np
+
 from backend.biometrics.voice import pipeline
 from scripts.synth import make_speaker, synthesize_utterance
+
 SR=16000
 rng=np.random.default_rng(7)
 spk=[make_speaker(i,rng) for i in range(4)]

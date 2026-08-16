@@ -2,7 +2,6 @@ import sys
 
 sys.path.insert(0, ".")
 
-import numpy as np
 
 from backend.biometrics.voice import pipeline, wav
 from scripts.synth import synthesize_speaker

@@ -183,7 +183,7 @@ def probar_salidas(entrada=None, salida=None) -> int:
         mejores.sort(reverse=True)
         g, idx, nombre = mejores[0]
         print(f"Mejor salida: {idx} ({nombre}), +{g:.1f} dB sobre el fondo.")
-        print(f"Graba los pares con:")
+        print("Graba los pares con:")
         print(f"  python scripts/record_replay.py par --salida {idx}")
     else:
         print("Ningun altavoz fue captado por el microfono. Comprueba que:")
@@ -265,7 +265,7 @@ def main(argv: list[str]) -> int:
         write_wav(destino, audio)
         informe(audio, "genuino")
         print(f"  guardado en {destino}")
-        print(f"\nAhora reproducelo por altavoz con:")
+        print("\nAhora reproducelo por altavoz con:")
         print(f"  python scripts/record_replay.py replay {destino}")
         return 0
 

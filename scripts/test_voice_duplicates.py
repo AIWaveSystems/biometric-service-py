@@ -5,7 +5,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import numpy as np
 import requests
 
 from backend.biometrics.voice import embedder, pipeline
