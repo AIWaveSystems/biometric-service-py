@@ -105,12 +105,23 @@ class VoiceTemplate(Base):
     n_components: Mapped[int] = mapped_column(Integer, default=16)
     parameters: Mapped[bytes] = mapped_column(LargeBinary)
     features: Mapped[bytes] = mapped_column(LargeBinary)
+    embedding: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     self_score: Mapped[float] = mapped_column(Float, default=0.0)
     self_sigma: Mapped[float] = mapped_column(Float, default=1.0)
     duration_seconds: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped[User] = relationship(back_populates="voice_templates")
+
+
+class VoiceChallenge(Base):
+    __tablename__ = "voice_challenges"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    username: Mapped[str] = mapped_column(String(100), index=True)
+    digits: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
 class VoiceDigitTemplate(Base):

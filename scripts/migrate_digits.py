@@ -29,6 +29,16 @@ def main() -> int:
     else:
         print("  columna cmvn: ya existe")
 
+    # Embedding de locutor (CAM++). Las plantillas de voz anteriores quedan con
+    # embedding NULL y siguen verificando por MFCC+GMM hasta que se re-registren.
+    vcols = {c["name"] for c in inspect(engine).get_columns("voice_templates")}
+    if "embedding" not in vcols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE voice_templates ADD COLUMN embedding BYTEA"))
+        print("  columna embedding: creada")
+    else:
+        print("  columna embedding: ya existe")
+
     db = SessionLocal()
     try:
         users = db.query(User).count()
@@ -41,6 +51,9 @@ def main() -> int:
     print("\nMigracion completada. Ningun dato existente se ha modificado.")
     print("Los usuarios ya registrados siguen usando /api/voice/verify sin cambios;")
     print("para el desafio de digitos deben matricularlos con /api/voice/digits/enroll.")
+    print("\nPara que usen el modelo de locutor nuevo (mucho mas preciso) hay que")
+    print("volver a registrar su voz: el embedding se calcula al matricular.")
+    print("Comprueba quien lo tiene ya con: python scripts/diagnose_voice_db.py")
     return 0
 
 
