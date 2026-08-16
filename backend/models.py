@@ -1,7 +1,17 @@
 from datetime import datetime
 from uuid import UUID as UUIDType, uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Uuid
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    LargeBinary,
+    String,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -22,6 +32,9 @@ class User(Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     voice_templates: Mapped[list["VoiceTemplate"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    digit_templates: Mapped[list["VoiceDigitTemplate"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -98,3 +111,19 @@ class VoiceTemplate(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped[User] = relationship(back_populates="voice_templates")
+
+
+class VoiceDigitTemplate(Base):
+    __tablename__ = "voice_digit_templates"
+    __table_args__ = (UniqueConstraint("user_id", "digit", name="uq_voice_digit_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    digit: Mapped[str] = mapped_column(String(2), index=True)
+    n_components: Mapped[int] = mapped_column(Integer, default=2)
+    parameters: Mapped[bytes] = mapped_column(LargeBinary)
+    cmvn: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    n_frames: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    user: Mapped[User] = relationship(back_populates="digit_templates")

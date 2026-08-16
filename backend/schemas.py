@@ -76,12 +76,51 @@ class VoiceVerifyResponse(BaseModel):
     reason: str | None = None
 
 
+class VoiceDigitEnrollResponse(BaseModel):
+    username: str
+    uuid: str | None = None
+    digits: list[str]
+    n_segments: int
+    frames_per_digit: dict[str, int]
+    duration_seconds: float
+    message: str
+
+
+class VoiceChallengeResponse(BaseModel):
+    challenge_id: str
+    username: str
+    digits: list[str]
+    expires_in: int
+    instructions: str
+
+
+class VoiceChallengeVerifyResponse(BaseModel):
+    verified: bool
+    username: str | None = None
+    uuid: str | None = None
+    identity_ok: bool
+    content_ok: bool
+    expected: list[str]
+    recognised: list[str]
+    n_segments: int
+    n_errors: int
+    min_margin: float | None = None
+    score: float | None = None
+    scoring: str = "gmm-z"
+    n_background_speakers: int = 0
+    access_token: str | None = None
+    token_type: str = "bearer"
+    expires_in: int | None = None
+    reason: str | None = None
+
+
 class UserResponse(BaseModel):
     username: str
     uuid: str
     has_password: bool
     face_templates: list[dict]
     voice_templates: list[dict]
+    digits: list[str] = []
 
 
 class FaceRegisterRequest(BaseModel):

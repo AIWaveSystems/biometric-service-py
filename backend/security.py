@@ -128,5 +128,53 @@ class RateLimiter:
         return True
 
 
+class ChallengeStore:
+    """Desafios de un solo uso emitidos por el servidor.
+
+    Los digitos se eligen aqui y nunca los propone el cliente: es lo unico que
+    impide que una grabacion previa sirva para entrar. Consumir un desafio lo
+    borra, asi que ni siquiera la respuesta correcta vale dos veces.
+
+    El estado vive en memoria del proceso. Con varios workers hay que emitir y
+    verificar contra el mismo proceso o mover esto a Redis; esta documentado en
+    el README.
+    """
+
+    def __init__(self, ttl_seconds: int, max_entries: int = 10000):
+        self._ttl = ttl_seconds
+        self._max_entries = max_entries
+        self._entries: dict[str, tuple[str, tuple[str, ...], float]] = {}
+        self._lock = threading.Lock()
+
+    def _purge(self, now: float) -> None:
+        expired = [k for k, (_, _, ts) in self._entries.items() if now - ts >= self._ttl]
+        for k in expired:
+            del self._entries[k]
+
+    def issue(self, username: str, digits: tuple[str, ...]) -> tuple[str, int]:
+        token = secrets.token_urlsafe(24)
+        now = time.monotonic()
+        with self._lock:
+            self._purge(now)
+            if len(self._entries) >= self._max_entries:
+                oldest = min(self._entries, key=lambda k: self._entries[k][2])
+                del self._entries[oldest]
+            self._entries[token] = (username, digits, now)
+        return token, self._ttl
+
+    def consume(self, token: str, username: str) -> tuple[str, ...] | None:
+        now = time.monotonic()
+        with self._lock:
+            self._purge(now)
+            entry = self._entries.pop(token, None)
+        if entry is None:
+            return None
+        owner, digits, _ = entry
+        if not constant_time_equals(owner, username):
+            return None
+        return digits
+
+
 replay_guard = ReplayGuard(settings.replay_window_seconds)
 auth_limiter = RateLimiter(settings.auth_rate_limit, settings.auth_rate_window_seconds)
+challenge_store = ChallengeStore(settings.voice_challenge_ttl_seconds)

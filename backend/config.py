@@ -10,8 +10,13 @@ class Settings(BaseSettings):
 
     face_threshold: float = 0.363
     voice_z_threshold: float = -2.5
-    voice_llr_threshold: float = 0.4
+    voice_llr_threshold: float = 1.2
     voice_ratio_threshold: float = -3.0
+
+    voice_challenge_digits: int = 4
+    voice_challenge_ttl_seconds: int = 60
+    voice_challenge_min_margin: float = 0.0
+    voice_challenge_max_errors: int = 0
 
     liveness_min_faces: int = 6
     liveness_max_gap_ratio: float = 0.4

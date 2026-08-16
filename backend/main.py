@@ -29,7 +29,12 @@ SCOPE_ENROLL = "enroll"
 SCOPE_AUTH = "auth"
 SCOPE_ADMIN = "admin"
 
-ENROLL_PATHS = {"/api/users/register", "/api/face/register", "/api/voice/register"}
+ENROLL_PATHS = {
+    "/api/users/register",
+    "/api/face/register",
+    "/api/voice/register",
+    "/api/voice/digits/enroll",
+}
 ADMIN_PREFIXES = ("/api/clients", "/api/portal/users")
 ADMIN_PATHS = {"/api/users", "/api/face/templates", "/api/voice/templates"}
 
@@ -37,11 +42,15 @@ ADMIN_PATHS = {"/api/users", "/api/face/templates", "/api/voice/templates"}
 def required_scope(method: str, path: str) -> str:
     if path in ENROLL_PATHS:
         return SCOPE_ENROLL
+    if path.startswith("/api/users/") and path.endswith("/faces"):
+        return SCOPE_ENROLL
+    if path.startswith("/api/users/") and path.endswith(("/password", "/rename")):
+        return SCOPE_ADMIN
     if path.startswith(ADMIN_PREFIXES):
         return SCOPE_ADMIN
     if path in ADMIN_PATHS or path.startswith(("/api/face/templates/", "/api/voice/templates/")):
         return SCOPE_ADMIN
-    if method == "DELETE" and path.startswith("/api/users/"):
+    if method == "DELETE" and path.startswith(("/api/users/", "/api/voice/digits/")):
         return SCOPE_ADMIN
     return SCOPE_AUTH
 
