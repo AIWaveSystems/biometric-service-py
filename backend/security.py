@@ -6,8 +6,11 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import jwt
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
 
 from .config import settings
+from .models import VoiceChallenge
 
 SCOPE_PORTAL = "portal"
 SCOPE_USER = "user"
@@ -129,49 +132,44 @@ class RateLimiter:
 
 
 class ChallengeStore:
-    """Desafios de un solo uso emitidos por el servidor.
-
-    Los digitos se eligen aqui y nunca los propone el cliente: es lo unico que
-    impide que una grabacion previa sirva para entrar. Consumir un desafio lo
-    borra, asi que ni siquiera la respuesta correcta vale dos veces.
-
-    El estado vive en memoria del proceso. Con varios workers hay que emitir y
-    verificar contra el mismo proceso o mover esto a Redis; esta documentado en
-    el README.
-    """
-
-    def __init__(self, ttl_seconds: int, max_entries: int = 10000):
+    def __init__(self, ttl_seconds: int):
         self._ttl = ttl_seconds
-        self._max_entries = max_entries
-        self._entries: dict[str, tuple[str, tuple[str, ...], float]] = {}
-        self._lock = threading.Lock()
 
-    def _purge(self, now: float) -> None:
-        expired = [k for k, (_, _, ts) in self._entries.items() if now - ts >= self._ttl]
-        for k in expired:
-            del self._entries[k]
+    def _purge_expired(self, db: Session) -> None:
+        cutoff = datetime.utcnow() - timedelta(seconds=self._ttl)
+        db.execute(delete(VoiceChallenge).where(VoiceChallenge.created_at < cutoff))
+        db.commit()
 
-    def issue(self, username: str, digits: tuple[str, ...]) -> tuple[str, int]:
+    def issue(self, db: Session, username: str, digits: tuple[str, ...]) -> tuple[str, int]:
+        self._purge_expired(db)
         token = secrets.token_urlsafe(24)
-        now = time.monotonic()
-        with self._lock:
-            self._purge(now)
-            if len(self._entries) >= self._max_entries:
-                oldest = min(self._entries, key=lambda k: self._entries[k][2])
-                del self._entries[oldest]
-            self._entries[token] = (username, digits, now)
+        db.add(
+            VoiceChallenge(
+                token=token,
+                username=username,
+                digits=",".join(digits),
+            )
+        )
+        db.commit()
         return token, self._ttl
 
-    def consume(self, token: str, username: str) -> tuple[str, ...] | None:
-        now = time.monotonic()
-        with self._lock:
-            self._purge(now)
-            entry = self._entries.pop(token, None)
-        if entry is None:
+    def consume(self, db: Session, token: str, username: str) -> tuple[str, ...] | None:
+        self._purge_expired(db)
+        row = db.execute(
+            select(VoiceChallenge)
+            .where(VoiceChallenge.token == token)
+            .with_for_update()
+        ).scalar_one_or_none()
+        if row is None:
             return None
-        owner, digits, _ = entry
-        if not constant_time_equals(owner, username):
+        cutoff = datetime.utcnow() - timedelta(seconds=self._ttl)
+        if row.created_at < cutoff or not constant_time_equals(row.username, username):
+            db.delete(row)
+            db.commit()
             return None
+        digits = tuple(d.strip() for d in row.digits.split(",") if d.strip())
+        db.delete(row)
+        db.commit()
         return digits
 
 
