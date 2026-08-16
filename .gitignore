@@ -10,6 +10,7 @@ __pycache__/
 datos_cara/
 datos_voz/
 frames_liveness/
+datos_liveness/
 
 backend/biometrics/face/models/
 
