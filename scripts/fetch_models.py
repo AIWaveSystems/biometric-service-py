@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 MODEL_DIR = ROOT / "backend" / "biometrics" / "face" / "models"
 BASE = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models"
+OSF = "https://raw.githubusercontent.com/emilianavt/OpenSeeFace/master/models"
 
 MODELS = [
     (
@@ -17,6 +18,11 @@ MODELS = [
         "face_recognition_sface_2021dec.onnx",
         f"{BASE}/face_recognition_sface/face_recognition_sface_2021dec.onnx",
         38696353,
+    ),
+    (
+        "face_landmarks_osf.onnx",
+        f"{OSF}/lm_model3_opt.onnx",
+        13500226,
     ),
 ]
 
