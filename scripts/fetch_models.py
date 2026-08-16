@@ -5,8 +5,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MODEL_DIR = ROOT / "backend" / "biometrics" / "face" / "models"
+VOICE_DIR = ROOT / "backend" / "biometrics" / "voice" / "models"
 BASE = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models"
 OSF = "https://raw.githubusercontent.com/emilianavt/OpenSeeFace/master/models"
+WESPEAKER = "https://huggingface.co/Wespeaker/wespeaker-voxceleb-campplus-LM/resolve/main"
 
 MODELS = [
     (
@@ -26,9 +28,20 @@ MODELS = [
     ),
 ]
 
+# El equivalente de SFace para voz: un embedding de locutor entrenado sobre
+# VoxCeleb (miles de hablantes). Trae la poblacion de fondo dentro del modelo,
+# asi que no hace falta construir un UBM por usuario en cada peticion.
+VOICE_MODELS = [
+    (
+        "speaker_campplus.onnx",
+        f"{WESPEAKER}/voxceleb_CAM++_LM.onnx",
+        29292449,
+    ),
+]
 
-def download(name: str, url: str, expected_size: int) -> bool:
-    target = MODEL_DIR / name
+
+def download(directory: Path, name: str, url: str, expected_size: int) -> bool:
+    target = directory / name
     if target.exists() and target.stat().st_size == expected_size:
         print(f"  {name}: ya presente ({expected_size} bytes)")
         return True
@@ -49,12 +62,24 @@ def download(name: str, url: str, expected_size: int) -> bool:
 
 def main() -> int:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"Destino: {MODEL_DIR}")
-    ok = all(download(*m) for m in MODELS)
-    if ok:
+    VOICE_DIR.mkdir(parents=True, exist_ok=True)
+
+    print(f"Rostro -> {MODEL_DIR}")
+    ok_face = all(download(MODEL_DIR, *m) for m in MODELS)
+
+    print(f"\nVoz -> {VOICE_DIR}")
+    ok_voice = all(download(VOICE_DIR, *m) for m in VOICE_MODELS)
+
+    if ok_face and ok_voice:
         print("\nModelos listos.")
         return 0
-    print("\nFaltan modelos. El servicio facial no arrancara.")
+    if not ok_face:
+        print("\nFaltan modelos faciales. El servicio no arrancara.")
+    if not ok_voice:
+        print(
+            "\nFalta el modelo de voz. El servicio arranca igual, pero la verificacion\n"
+            "de locutor cae al camino antiguo (MFCC+GMM), bastante menos preciso."
+        )
     return 1
 
 

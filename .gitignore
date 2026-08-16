@@ -15,5 +15,6 @@ datos_replay/
 datos_digitos/
 
 backend/biometrics/face/models/
+backend/biometrics/voice/models/
 
 *.log
