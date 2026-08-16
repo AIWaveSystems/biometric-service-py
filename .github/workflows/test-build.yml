@@ -177,9 +177,66 @@ jobs:
     name: Build de imagen
     runs-on: ubuntu-latest
     needs: [lint, tests-offline]
-    if: hashFiles('Dockerfile') != ''
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: biometrico
+          POSTGRES_PASSWORD: biometrico
+          POSTGRES_DB: auth_biometric
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
+      - uses: docker/setup-buildx-action@v3
+
       - name: Construir imagen
-        run: docker build -t login-biometrico-service:${{ github.sha }} .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: login-biometrico-service:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Comprobar que los modelos estan dentro de la imagen
+        run: |
+          docker run --rm login-biometrico-service:ci \
+            python -c "from backend.biometrics.face import embedder, landmarks; from backend.biometrics.voice import embedder as s; print('modelos:', embedder.available(), landmarks.available(), s.available())"
+
+      - name: Arrancar el contenedor y comprobar /health
+        run: |
+          docker run -d --name biometrico-ci --network host \
+            -e DATABASE_URL='postgresql+psycopg2://biometrico:biometrico@127.0.0.1:5432/auth_biometric' \
+            -e JWT_SECRET=clave-solo-para-integracion-continua \
+            -e API_KEY_PEPPER=pimienta-solo-para-integracion-continua \
+            -e PORTAL_USER=admin \
+            -e PORTAL_PASSWORD=admin123 \
+            login-biometrico-service:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/health | grep -q '"status":"ok"'; then
+              echo "La imagen arranca y /health responde ok"
+              docker rm -f biometrico-ci
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "El contenedor no llego a estado ok"
+          docker logs biometrico-ci
+          docker rm -f biometrico-ci
+          exit 1
+
+      - name: Comprobar que no corre como root
+        run: |
+          usuario=$(docker run --rm login-biometrico-service:ci id -un)
+          echo "usuario: $usuario"
+          [ "$usuario" = "biometrico" ] || { echo "La imagen corre como $usuario"; exit 1; }
