@@ -26,17 +26,44 @@ def portal_auth(user=PORTAL_USER, password=PORTAL_PASSWORD):
     return requests.post(f"{BASE}/api/portal/auth", json={"username": user, "password": password})
 
 
+# Ruido imperceptible y distinto en cada ejecucion de la suite. Sin el, los bytes
+# enviados serian identicos entre ejecuciones y el anti-replay devolveria 409 al
+# reejecutar dentro de REPLAY_WINDOW_SECONDS.
+_TINT = np.random.default_rng().integers(0, 3, size=(1, 1, 3), dtype=np.int16)
+
+
+def encode(frame):
+    tinted = np.clip(frame.astype(np.int16) + _TINT, 0, 255).astype(np.uint8)
+    return cv2.imencode(".jpg", tinted)[1].tobytes()
+
+
 def blink_sequence(source, n_open=5, n_closed=3):
+    """Fabrica abierto-cerrado-abierto difuminando la banda ocular por LANDMARKS.
+
+    Deliberadamente NO usa las constantes de liveness.py: si la prueba creara la
+    senal donde el detector la busca, se validaria a si misma.
+    """
+    from backend.biometrics.face import embedder, liveness
+
     img = cv2.imread(source)
+    face = embedder.primary_face(img)
+    if face is None:
+        raise SystemExit(f"sin cara detectable en {source}")
+    marks = liveness.landmarks(face)
+    d = marks["interocular"]
     h, w = img.shape[:2]
     mask = np.zeros((h, w), np.float64)
-    mask[int(h * 0.38) : int(h * 0.58), :] = 1.0
-    mask = cv2.GaussianBlur(mask, (0, 0), 10)[:, :, None]
+    cy = marks["eye_center"][1]
+    r0, r1 = max(0, int(cy - 0.5 * d)), min(h, int(cy + 0.5 * d))
+    c0 = max(0, int(min(marks["right_eye"][0], marks["left_eye"][0]) - 0.5 * d))
+    c1 = min(w, int(max(marks["right_eye"][0], marks["left_eye"][0]) + 0.5 * d))
+    mask[r0:r1, c0:c1] = 1.0
+    mask = cv2.GaussianBlur(mask, (0, 0), max(2.0, 0.1 * d))[:, :, None]
     smooth = cv2.GaussianBlur(img, (0, 0), 9.0).astype(np.float64)
     closed = (img.astype(np.float64) * (1.0 - mask) + smooth * mask).astype(np.uint8)
 
     frames = [img] * n_open + [closed] * n_closed + [img] * n_open
-    return [cv2.imencode(".jpg", f)[1].tobytes() for f in frames]
+    return [encode(f) for f in frames]
 
 
 def frame_files(blobs, tag):
@@ -144,7 +171,7 @@ r = requests.post(
 check("alice con parpadeo -> verifica", r["verified"], f"sim {r['similarity']}")
 check("el login facial emite token de sesion", bool(r.get("access_token")))
 
-still = [cv2.imencode(".jpg", cv2.imread("scripts/lena.jpg"))[1].tobytes()] * 13
+still = [encode(cv2.imread("scripts/lena.jpg"))] * 13
 r = requests.post(
     f"{BASE}/api/face/login",
     headers=H,
