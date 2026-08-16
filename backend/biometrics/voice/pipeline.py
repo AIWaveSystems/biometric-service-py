@@ -69,11 +69,6 @@ def extract_features(x: np.ndarray) -> tuple[np.ndarray, float]:
     if duration < MIN_DURATION:
         raise ValueError("El audio es demasiado corto (minimo 1 segundo)")
 
-    # La VAD es RELATIVA al pico de la propia toma, asi que en una grabacion que
-    # solo tiene ruido de fondo marca como "voz" casi todos los frames. Medido:
-    # una toma muda a -70 dBFS de RMS producia 490 frames de voz y llegaba a
-    # puntuar por encima del umbral en varias cuentas. Hace falta un suelo
-    # ABSOLUTO antes de mirar nada mas. La voz real medida va de -29 a -44 dBFS.
     rms = float(np.sqrt((x ** 2).mean()))
     level = 20.0 * np.log10(max(rms, 1e-9))
     if level < MIN_RMS_DBFS:
@@ -105,21 +100,6 @@ def choose_components(n_frames: int, requested: int = N_COMPONENTS) -> int:
 def utterance_features(
     x: np.ndarray, stats: tuple[np.ndarray, np.ndarray] | None = None
 ) -> tuple[np.ndarray, np.ndarray, tuple[np.ndarray, np.ndarray]]:
-    """Frames de la locucion COMPLETA, sin recortar los silencios.
-
-    La CMVN se estima con los frames con voz y se aplica a todos. Estimarla sobre
-    la toma entera era peor todavia: la proporcion de silencio cambia entre una
-    matricula de 10 digitos y un desafio de 4, y con ella la media.
-
-    Pero estimarla sobre los frames con voz TAMPOCO basta, y esto se midio: la
-    media de 4 digitos no es la de 10, asi que el mismo digito caia en otro sitio
-    del espacio y 7 de cada 20 desafios fallaban aun con audio identico. Por eso
-    `stats` permite imponer la normalizacion GUARDADA EN LA MATRICULA, que es lo
-    que hace la verificacion: enfrenta ambas tomas en el mismo espacio.
-
-    El precio es que ya no se absorbe la deriva de canal entre sesiones. Eso se
-    mide aparte, con scripts/test_digits.py.
-    """
     x = np.asarray(x, dtype=np.float64)
     statics = mfcc.mfcc(x, sample_rate=SAMPLE_RATE, with_deltas=False)
     mask = voice_activity_mask(x, len(statics), DIGIT_VAD_REL_THRESHOLD)
@@ -156,7 +136,6 @@ def segment_ranges(
     min_segment: float = DIGIT_MIN_SEGMENT,
     min_gap: float = DIGIT_MIN_GAP,
 ) -> list[tuple[int, int]]:
-    """Agrupa los frames con voz en locuciones separadas por silencio."""
     gap_frames = max(1, int(round(min_gap / HOP_LEN)))
     min_frames = max(1, int(round(min_segment / HOP_LEN)))
     filled = _close_gaps(np.asarray(mask, dtype=bool), gap_frames)
@@ -177,7 +156,6 @@ def segment_ranges(
 def split_utterance(
     x: np.ndarray, stats: tuple[np.ndarray, np.ndarray] | None = None
 ) -> tuple[list[np.ndarray], tuple[np.ndarray, np.ndarray]]:
-    """Trocea una toma en sus locuciones y devuelve features y normalizacion."""
     feat, mask, used = utterance_features(x, stats)
     return [feat[a:b] for a, b in segment_ranges(mask)], used
 
@@ -198,11 +176,6 @@ def fit_digit_gmm(feat: np.ndarray) -> GMM:
 
 
 def classify_digit(feat: np.ndarray, models: dict[str, GMM]) -> tuple[str, float]:
-    """Devuelve el digito mas probable y su ventaja sobre el segundo mejor.
-
-    La ventaja se mide en log-verosimilitud media por frame, asi que no depende
-    de la duracion del segmento y es comparable entre desafios.
-    """
     scored = sorted(
         ((label, model.mean_score(feat)) for label, model in models.items()),
         key=lambda item: item[1],

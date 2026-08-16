@@ -6,8 +6,8 @@ import numpy as np
 from . import fbank
 
 MODEL_DIR = Path(__file__).resolve().parent / "models"
-MODEL_PATH = MODEL_DIR / "speaker_campplus.onnx"
-EMBEDDING_DIM = 512
+MODEL_PATH = MODEL_DIR / "speaker_resnet34.onnx"
+EMBEDDING_DIM = 256
 MIN_FRAMES = 100
 
 _session = None
@@ -19,12 +19,6 @@ def available() -> bool:
 
 
 def _get_session():
-    """Sesion unica y compartida.
-
-    ONNX Runtime es seguro entre hilos para run(), asi que a diferencia de los
-    modelos de OpenCV no hace falta una instancia por hilo. Crearla cuesta ~1 s y
-    el modelo ocupa 29 MB: una sola, creada al primer uso.
-    """
     global _session
     if _session is not None:
         return _session
@@ -45,11 +39,6 @@ def _get_session():
 
 
 def embed(x: np.ndarray) -> np.ndarray:
-    """Embedding de locutor de 512 dimensiones, normalizado a norma 1.
-
-    Con norma 1 el coseno es un simple producto escalar, igual que en el lado
-    facial con SFace.
-    """
     feats = fbank.fbank(x)
     if len(feats) < MIN_FRAMES:
         raise ValueError(

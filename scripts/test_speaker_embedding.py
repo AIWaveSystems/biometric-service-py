@@ -47,7 +47,7 @@ check("la CMN deja media cero", abs(fbank.cmn(f).mean(axis=0)).max() < 1e-4)
 
 print("\n=== Embedding ===")
 v = embedder.embed(tono)
-check("512 dimensiones", v.shape == (embedder.EMBEDDING_DIM,), str(v.shape))
+check(f"{embedder.EMBEDDING_DIM} dimensiones", v.shape == (embedder.EMBEDDING_DIM,), str(v.shape))
 check("norma 1", abs(np.linalg.norm(v) - 1.0) < 1e-5)
 check("determinista", np.allclose(v, embedder.embed(tono)))
 check(
@@ -80,17 +80,18 @@ else:
     print("  (omitido: no hay grabaciones propias, son datos fuera de git)")
 
 print("\n=== Separacion de locutores con datos reales ===")
-print("  El unico locutor humano disponible es el de datos_replay/. Los de")
-print("  scripts/ son sinteticos y salen 0.47-0.80 ENTRE SI: para el modelo son")
-print("  casi el mismo hablante, porque es el mismo sintetizador. No cuentan como")
-print("  tres personas y no se usan como impostores.")
+print("  Impostores: los sinteticos de scripts/ y las grabaciones de otras personas")
+print("  que haya en datos_otros/. Los sinteticos NO se comparan entre si: salen a")
+print("  0.8 unos de otros porque son el mismo sintetizador con otros parametros,")
+print("  asi que contarlos inflaria el FAR sin medir nada real.")
 
 if len(real) >= 2:
     E = np.array([embedder.embed(pipeline.load_audio(p.read_bytes())) for p in real])
     genuino = (E @ E.T)[np.triu_indices(len(E), 1)]
     otros = []
-    for grupo in ("A", "B", "C"):
-        paths = sorted(Path("scripts").glob(f"{grupo}_*.wav"))
+    for paths in [sorted(Path("scripts").glob(f"{g}_*.wav")) for g in ("A", "B", "C")] + [
+        sorted(Path("datos_otros").glob("*.wav"))
+    ]:
         if paths:
             O = np.array([embedder.embed(pipeline.load_audio(p.read_bytes())) for p in paths])
             otros.append((E @ O.T).ravel())
@@ -115,9 +116,10 @@ if len(real) >= 2:
 else:
     print("  (omitido: hacen falta 2+ grabaciones propias)")
 
-print("\n  RECORDATORIO: esto NO mide FAR contra impostores humanos, porque solo")
-print("  hay un hablante real disponible. Registra 3+ personas reales y mide con")
-print("  scripts/diagnose_voice_db.py antes de confiar en el umbral.")
+n_otros = len(sorted(Path("datos_otros").glob("*.wav")))
+print(f"\n  Impostores HUMANOS usados: {n_otros}. Con tan pocos el umbral no esta")
+print("  calibrado, solo comprobado. Anade mas voces reales a datos_otros/ y mide")
+print("  con scripts/diagnose_voice_db.py antes de produccion.")
 
 print(f"\nRESULTADO: {ok} pasaron, {fail} fallaron")
 sys.exit(1 if fail else 0)

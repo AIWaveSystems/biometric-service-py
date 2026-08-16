@@ -6,7 +6,7 @@ FRAME_LENGTH = 0.025
 FRAME_SHIFT = 0.010
 PREEMPHASIS = 0.97
 LOW_FREQ = 20.0
-HIGH_FREQ = 7600.0
+HIGH_FREQ = 8000.0
 EPSILON = 1.19209290e-07
 
 
@@ -19,12 +19,6 @@ def _mel_to_hz(m):
 
 
 def _filterbank(n_fft: int, sample_rate: int, n_mels: int) -> np.ndarray:
-    """Banco triangular en el dominio MEL, como el de Kaldi.
-
-    No reutiliza mfcc.mel_filterbank porque aquel cuantiza los bordes a bins
-    enteros; Kaldi los deja continuos y el modelo de WeSpeaker se entreno con la
-    version continua. Con la cuantizada los embeddings salen desplazados.
-    """
     n_bins = n_fft // 2 + 1
     fft_freqs = np.linspace(0.0, sample_rate / 2.0, n_bins)
     mel_low, mel_high = _hz_to_mel(LOW_FREQ), _hz_to_mel(HIGH_FREQ)
@@ -51,13 +45,6 @@ def _banks(n_fft: int, sample_rate: int, n_mels: int) -> np.ndarray:
 
 
 def fbank(x: np.ndarray, sample_rate: int = SAMPLE_RATE, n_mels: int = N_MELS) -> np.ndarray:
-    """Log-mel filterbank compatible con kaldi.fbank(window_type='hamming').
-
-    Reproduce el orden exacto de Kaldi porque el modelo espera esa entrada:
-    escala a rango int16, quita la continua POR FRAME, preenfasis dentro del
-    frame, ventana de Hamming, y logaritmo con suelo. Cambiar el orden de esos
-    pasos no rompe nada visible pero degrada el embedding en silencio.
-    """
     x = np.asarray(x, dtype=np.float64)
     if np.abs(x).max() <= 1.0:
         x = x * 32768.0
@@ -88,5 +75,4 @@ def fbank(x: np.ndarray, sample_rate: int = SAMPLE_RATE, n_mels: int = N_MELS) -
 
 
 def cmn(feat: np.ndarray) -> np.ndarray:
-    """Resta de la media por coeficiente, que es lo que aplica WeSpeaker."""
     return feat - feat.mean(axis=0, keepdims=True)

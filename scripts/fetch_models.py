@@ -8,7 +8,7 @@ MODEL_DIR = ROOT / "backend" / "biometrics" / "face" / "models"
 VOICE_DIR = ROOT / "backend" / "biometrics" / "voice" / "models"
 BASE = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models"
 OSF = "https://raw.githubusercontent.com/emilianavt/OpenSeeFace/master/models"
-WESPEAKER = "https://huggingface.co/Wespeaker/wespeaker-voxceleb-campplus-LM/resolve/main"
+WESPEAKER = "https://huggingface.co/hbredin/wespeaker-voxceleb-resnet34-LM/resolve/main"
 
 MODELS = [
     (
@@ -28,14 +28,11 @@ MODELS = [
     ),
 ]
 
-# El equivalente de SFace para voz: un embedding de locutor entrenado sobre
-# VoxCeleb (miles de hablantes). Trae la poblacion de fondo dentro del modelo,
-# asi que no hace falta construir un UBM por usuario en cada peticion.
 VOICE_MODELS = [
     (
-        "speaker_campplus.onnx",
-        f"{WESPEAKER}/voxceleb_CAM++_LM.onnx",
-        29292449,
+        "speaker_resnet34.onnx",
+        f"{WESPEAKER}/speaker-embedding.onnx",
+        26530309,
     ),
 ]
 
