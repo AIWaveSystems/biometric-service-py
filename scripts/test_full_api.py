@@ -71,6 +71,23 @@ def frame_files(blobs, tag):
     return [("frames", (f"{tag}{i}.jpg", b, "image/jpeg")) for i, b in enumerate(blobs)]
 
 
+# Esta suite BORRA TODOS LOS USUARIOS de la base a la que apunte. Nunca debe
+# poder ejecutarse por descuido contra datos reales, asi que exige un permiso
+# explicito en vez de confiar en que quien la lanza sepa lo que hace.
+if os.environ.get("ALLOW_DESTRUCTIVE") != "yes":
+    print("Esta suite BORRA TODOS los usuarios de la base indicada en DATABASE_URL.")
+    print(f"Base objetivo: {BASE}")
+    print()
+    print("Si es una base de PRUEBAS y quieres continuar:")
+    print("  ALLOW_DESTRUCTIVE=yes python scripts/test_full_api.py            (bash)")
+    print('  $env:ALLOW_DESTRUCTIVE="yes"; python scripts/test_full_api.py    (PowerShell)')
+    print()
+    print("Para las pruebas que NO borran nada usa:")
+    print("  python scripts/test_digits.py")
+    print("  python scripts/test_liveness.py")
+    print("  python scripts/test_voice.py")
+    sys.exit(2)
+
 print("=== 0. Acceso sin autenticar ===")
 check("GET /api/users sin token -> 401", requests.get(f"{BASE}/api/users").status_code == 401)
 check("GET /docs sin credenciales -> 401", requests.get(f"{BASE}/docs").status_code == 401)
