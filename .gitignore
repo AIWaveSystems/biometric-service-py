@@ -12,6 +12,7 @@ datos_voz/
 frames_liveness/
 datos_liveness/
 datos_replay/
+datos_digitos/
 
 backend/biometrics/face/models/
 

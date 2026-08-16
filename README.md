@@ -27,12 +27,13 @@ localmente, sin llamadas externas.
 5. [Cómo funciona la detección de vida](#cómo-funciona-la-detección-de-vida-liveness)
 6. [Protocolo de captura para el cliente](#protocolo-de-captura-para-el-cliente-cualquier-lenguaje)
 7. [Cómo funciona el reconocimiento de voz](#cómo-funciona-el-reconocimiento-de-voz)
-8. [Modelo de seguridad](#modelo-de-seguridad)
-9. [API](#api)
-10. [Rendimiento medido](#rendimiento-medido)
-11. [Calibración de umbrales](#calibración-de-umbrales)
-12. [Scripts](#scripts)
-13. [Limitaciones conocidas](#limitaciones-conocidas)
+8. [Suplantación por grabación: el desafío de dígitos](#suplantación-por-grabación-el-desafío-de-dígitos)
+9. [Modelo de seguridad](#modelo-de-seguridad)
+10. [API](#api)
+11. [Rendimiento medido](#rendimiento-medido)
+12. [Calibración de umbrales](#calibración-de-umbrales)
+13. [Scripts](#scripts)
+14. [Limitaciones conocidas](#limitaciones-conocidas)
 
 ---
 
@@ -133,6 +134,7 @@ python scripts/fetch_models.py    # descarga YuNet, SFace y landmarks (~52 MB)
 python scripts/create_db.py       # crea la base en PostgreSQL
 python scripts/migrate_v05.py     # uuid de usuario, operadores y API keys
 python scripts/migrate_voice.py   # columnas de calibración de voz
+python scripts/migrate_digits.py  # tabla del desafío de dígitos (aditivo)
 
 uvicorn backend.main:app --reload
 ```
@@ -189,6 +191,10 @@ hasheadas en `portal_users`. Ver [Modelo de seguridad](#modelo-de-seguridad).
 | `VOICE_LLR_THRESHOLD` | `0.4` | Log-verosimilitud mínima frente al UBM (vía principal). |
 | `VOICE_Z_THRESHOLD` | `-2.5` | z-score mínimo (solo en el modo de reserva). |
 | `VOICE_RATIO_THRESHOLD` | `-3.0` | Ventaja mínima sobre la cohorte (modo de reserva). |
+| `VOICE_CHALLENGE_DIGITS` | `4` | Dígitos que sortea el servidor en cada desafío. |
+| `VOICE_CHALLENGE_TTL_SECONDS` | `60` | Vida de un desafío emitido. Es de un solo uso. |
+| `VOICE_CHALLENGE_MAX_ERRORS` | `0` | Dígitos mal tolerados. Subirlo debilita el desafío mucho. |
+| `VOICE_CHALLENGE_MIN_MARGIN` | `0.0` | Ventaja mínima del dígito ganador sobre el segundo. |
 | `LIVENESS_MIN_FACES` | `6` | Frames con rostro necesarios para evaluar el parpadeo. |
 | `LIVENESS_MAX_GAP_RATIO` | `0.4` | Fracción máxima de frames sin rostro admitida. |
 | `REPLAY_WINDOW_SECONDS` | `300` | Ventana en la que se rechaza una captura repetida. |
@@ -656,6 +662,192 @@ disfraz: un fondo que no representa a «los demás».
 
 ---
 
+## Suplantación por grabación: el desafío de dígitos
+
+El reconocimiento de locutor responde a *quién habla*, no a *si esa voz está
+ocurriendo ahora*. Una grabación de tu voz enviada al endpoint puntúa igual que
+tu voz en directo, porque **es** tu voz. El `ReplayGuard` solo detecta el reenvío
+literal de los mismos bytes; basta recodificar el fichero para esquivarlo.
+
+### Lo que se intentó primero, y por qué se descartó
+
+La vía obvia es un **detector pasivo**: buscar en el audio la huella del altavoz
+que reprodujo la grabación (respuesta en frecuencia recortada, graves de
+resonancia del cono, agudos perdidos, cola de reverberación distinta).
+
+Se midió con grabaciones reales propias: 5 tomas en directo y 2 tomas de una
+grabación reproducida desde un dispositivo externo, comparadas en seis
+características acústicas.
+
+| | graves 0-120 Hz | agudos 8-20 kHz | pendiente | planitud | decaimiento | contraste |
+|---|---|---|---|---|---|---|
+| directo (5) | −17.6 | −49.8 | −13.2 | 0.010 | 0.914 | 2.57 |
+| replay (2) | −26.0 | −50.8 | −12.9 | 0.015 | 0.801 | 2.25 |
+| **¿separa?** | no | no | no | no | no | no |
+
+**Ninguna característica separa.** Y el motivo es más profundo que un mal
+resultado: la variación *entre tomas en directo del mismo hablante* es mayor que
+la diferencia entre directo y replay. Los graves de las tomas genuinas van de
+−12.8 a −29.5 dB; las dos tomas de replay caen en −30.6 y −21.5, o sea dentro de
+ese rango. Una toma en directo resultó prácticamente indistinguible de una de
+replay. Lo que dominan estas características es **la distancia al micrófono y el
+volumen al hablar**, no si hubo un altavoz de por medio.
+
+Los sistemas que sí resuelven esto (los del reto ASVspoof) se entrenan con miles
+de muestras etiquetadas, decenas de altavoces y varias salas. No es un umbral que
+se ajuste: es un modelo que exige un corpus que este proyecto no tiene. Calibrar
+un detector sobre dos muestras habría producido un número bonito y un sistema que
+no aguanta un altavoz distinto del que se usó para calibrarlo.
+
+Las grabaciones del experimento quedan en `datos_replay/` por si algún día se
+retoma con más datos, y `scripts/record_replay.py` sirve para producir más.
+
+### La vía que sí funciona
+
+Si no se puede distinguir el canal, se cambia la pregunta: en vez de *«¿esta voz
+viene de un altavoz?»* se pregunta *«¿puede esta voz decir algo que yo elijo
+ahora mismo?»*. Una grabación hecha ayer no puede responder a cuatro dígitos que
+el servidor sortea hoy.
+
+```
+Cliente                                   Servidor
+   |                                          |
+   |-- POST /api/voice/challenge ------------>|  sortea 4 de los 10 dígitos
+   |                                          |  matriculados y guarda el
+   |<-- {challenge_id, digits: [3,7,1,9]} ----|  desafío como un solo uso
+   |                                          |
+   |  muestra los dígitos uno a uno           |
+   |  y graba en continuo                     |
+   |                                          |
+   |-- POST /api/voice/challenge/verify ----->|  1. consume el desafío (lo borra)
+   |   {challenge_id, username, audio}        |  2. trocea el audio por silencios
+   |                                          |  3. ¿son 4 locuciones?
+   |                                          |  4. ¿cada una es el dígito pedido?
+   |<-- {verified, identity_ok, content_ok} --|  5. ¿la voz es del titular?
+```
+
+Verifica **identidad y contenido a la vez**, y con el mismo motor: cada dígito se
+compara contra los modelos de **ese mismo usuario**, no contra un reconocedor de
+voz genérico. Un impostor que sepa los dígitos correctos falla el paso 5; una
+grabación del titular con otro contenido falla el paso 4.
+
+Con 4 dígitos sorteados de 10 hay **5040 secuencias ordenadas** posibles.
+
+### Matrícula
+
+El usuario dice los diez dígitos, del 0 al 9, **uno a uno con una pausa entre
+cada uno**. El servidor trocea la toma por silencios y entrena un GMM diminuto
+por dígito.
+
+```bash
+python scripts/record_digits.py maria
+```
+
+La herramienta muestra un dígito cada vez, graba en continuo, y **antes de que
+subas nada** comprueba localmente que el troceo cuadra:
+
+```
+  nivel de pico: -12.4 dBFS
+  locuciones detectadas: 10 (esperadas 10)
+     1. digito 0   1.52- 1.94 s  42 frames
+     ...
+  SIRVE: el troceo cuadra con los digitos pedidos.
+```
+
+Si el troceo no cuadra, el endpoint devuelve **400 y no toca lo ya matriculado**.
+Nunca se queda una matrícula a medias.
+
+Desde el portal está en la pestaña **Registrar**, sección «Matrícula de dígitos».
+Es **opcional**: los usuarios que no la hagan siguen entrando con
+`/api/voice/verify` exactamente igual que antes.
+
+### El troceo por silencios
+
+Es la pieza de la que depende todo, y es la misma VAD por energía que ya usaba la
+matrícula de voz, con el umbral relativo bajado a 0.06 y dos reglas encima:
+
+- Los huecos de silencio de menos de **140 ms** se rellenan: no separan palabras,
+  son las oclusivas dentro de un mismo dígito («o-**ch**-o»).
+- Los tramos de voz de menos de **140 ms** se descartan: son chasquidos, ruido de
+  fondo, un golpe en la mesa.
+
+Por eso la pausa entre dígitos **es parte del protocolo, no decoración**. Si el
+usuario recita `3-7-1-9` de corrido, el troceo devuelve una locución en vez de
+cuatro y el desafío se rechaza con un mensaje que lo explica.
+
+### Una trampa que costó encontrar: la CMVN
+
+La normalización cepstral (CMVN) resta la media y divide por la desviación de los
+coeficientes. Si esa media se estima **sobre la toma entera**, una matrícula de 10
+dígitos y un desafío de 4 tienen proporciones de silencio distintas, la media se
+desplaza, y los modelos dejan de ser comparables entre tomas.
+
+Se detectó en la suite de extremo a extremo: un dígito `1` se reconocía como `4`.
+La corrección es estimar la CMVN **solo con los frames que tienen voz** y
+aplicarla después a todos. Es específica de `utterance_features()`, la ruta nueva;
+`extract_features()`, que alimenta la verificación de locutor de siempre, no se
+tocó.
+
+### Estado de la validación — leer antes de confiar en las cifras
+
+| Qué se midió | Resultado | Qué significa |
+|---|---|---|
+| Troceo por silencios | 4/4 | Separa, resiste ruido, descarta tramos cortos |
+| Desafío de un solo uso | 5/5 | No se reutiliza, no lo consume otro usuario, caduca |
+| API de extremo a extremo | 15/15 | Acepta lo pedido, rechaza otros dígitos, otro número de dígitos, desafío inventado o reutilizado |
+| Contenido, **misma grabación** | 17/17 | Cota **optimista** |
+| Contenido, **entre sesiones** | **sin medir** | **La cifra que importa** |
+
+La discriminación de contenido se validó entrenando con la mitad de los frames de
+una locución y probando con la otra mitad. Eso mide si el modelo distingue
+locuciones distintas del mismo hablante, pero **comparte grabación, canal y
+normalización** entre entrenamiento y prueba. La cifra real —matricular un día y
+responder un desafío otro— **todavía no está medida**, y será peor.
+
+Para medirla, graba la matrícula **dos veces** y lanza la suite:
+
+```bash
+python scripts/record_digits.py maria
+python scripts/record_digits.py maria
+python scripts/test_digits.py
+```
+
+La suite entrena con una toma, prueba con la otra y te da el acierto por dígito
+más el rechazo esperado de un desafío de 4 con `VOICE_CHALLENGE_MAX_ERRORS=0`.
+**No pongas esto en producción sin ese número.** Si el acierto por dígito es del
+95%, un desafío de 4 dígitos rechaza a un 19% de los usuarios legítimos.
+
+### Ajuste si el rechazo es alto
+
+En orden, y midiendo entre cada paso:
+
+1. Matricular con **varias tomas** en sesiones distintas (aún no implementado:
+   hoy `digits/enroll` reemplaza la matrícula anterior).
+2. Bajar `VOICE_CHALLENGE_DIGITS` de 4 a 3 → 720 secuencias en vez de 5040.
+3. Subir `VOICE_CHALLENGE_MAX_ERRORS` a 1. **Último recurso:** multiplica por ~37
+   la probabilidad de acertar al azar.
+
+### Límite conocido: el estado vive en memoria
+
+`ChallengeStore` guarda los desafíos emitidos en memoria del proceso. Con varios
+workers de uvicorn detrás de un balanceador, un desafío emitido por el worker A
+no lo encuentra el worker B y devuelve 409. Con un solo worker no aplica.
+
+Para varios workers: sesión pegajosa en el balanceador, o mover `ChallengeStore` a
+Redis. Es el mismo trabajo pendiente que `ReplayGuard`, `RateLimiter`, `UbmCache` y
+la caché de API keys (ver [Límites de escalado](#límites-de-escalado)).
+
+### Lo que este mecanismo NO resuelve
+
+- **Síntesis de voz en tiempo real.** Un modelo que clone la voz del usuario y
+  pronuncie los dígitos sorteados pasa el desafío. Es un ataque bastante más caro
+  que reproducir una grabación, pero no es teórico.
+- **Un atacante presente con el usuario coaccionado.** Nada biométrico lo resuelve.
+- **Una grabación completa de una sesión anterior reenviada tal cual.** La cubre
+  el `ReplayGuard`, y además el desafío es de un solo uso.
+
+---
+
 ## Modelo de seguridad
 
 ### Tres formas de acceder
@@ -775,6 +967,9 @@ curl -X POST http://127.0.0.1:8000/api/face/verify \
 | `POST` | `/api/users/register` | `enroll` | Alta con contraseña, fotos y/o audio. |
 | `GET` | `/api/users` | `admin` | Lista de usuarios y sus plantillas. |
 | `GET` | `/api/users/by-uuid/{uuid}` | `auth` | Consulta un usuario por su identificador público. |
+| `POST` | `/api/users/{username}/faces` | `enroll` | **Añade** plantillas faciales a un usuario existente (acumula). |
+| `POST` | `/api/users/{username}/password` | `admin` | Fija, cambia o retira la contraseña. Campo vacío = la retira. |
+| `POST` | `/api/users/{username}/rename` | `admin` | Renombra conservando el `uuid` y todas las plantillas. |
 | `DELETE` | `/api/users/{username}` | `admin` | Borra usuario y plantillas en cascada. |
 | `POST` | `/api/face/register` | `enroll` | Alta solo con rostro. |
 | `POST` | `/api/face/verify` | `auth` | Compara una foto contra un usuario. |
@@ -784,6 +979,11 @@ curl -X POST http://127.0.0.1:8000/api/face/verify \
 | `DELETE` | `/api/face/templates/{id}` | `admin` | Borra una plantilla facial. |
 | `POST` | `/api/voice/register` | `enroll` | Registra o reemplaza la plantilla de voz. |
 | `POST` | `/api/voice/verify` | `auth` | Verifica al locutor. Devuelve token si acepta. |
+| `POST` | `/api/voice/digits/enroll` | `enroll` | Matricula la pronunciación de los dígitos desde una sola toma. |
+| `GET` | `/api/voice/digits/{username}` | `auth` | Qué dígitos tiene matriculados y si puede usar el desafío. |
+| `DELETE` | `/api/voice/digits/{username}` | `admin` | Borra la matrícula de dígitos de un usuario. |
+| `POST` | `/api/voice/challenge` | `auth` | Emite un desafío de un solo uso con dígitos sorteados. |
+| `POST` | `/api/voice/challenge/verify` | `auth` | Verifica identidad **y** contenido. Devuelve token si acepta. |
 | `GET` | `/api/voice/templates` | `admin` | Lista de plantillas de voz. |
 | `DELETE` | `/api/voice/templates/{id}` | `admin` | Borra una plantilla de voz. |
 
@@ -795,6 +995,104 @@ verificación falla, y `access_token` cuando tiene éxito.
 > falta de población de fondo. Trata como no fiable cualquier respuesta cuyo
 > `scoring` no sea `"ubm-map"`, y revisa `n_background_speakers`. El porqué está en
 > [La población de fondo](#la-población-de-fondo-el-punto-más-frágil-del-sistema).
+
+> **Si necesitas resistencia a grabaciones, usa el desafío de dígitos.**
+> `/api/voice/verify` acepta una grabación de la voz del titular: es su voz, y el
+> servicio no distingue el canal (se midió, ver
+> [Suplantación por grabación](#suplantación-por-grabación-el-desafío-de-dígitos)).
+> Solo `/api/voice/challenge` + `/api/voice/challenge/verify` lo impiden.
+
+### Protocolo del desafío de dígitos para el cliente (cualquier lenguaje)
+
+Tres pasos. El cliente **nunca** elige los dígitos.
+
+**1. Pedir el desafío.**
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/voice/challenge \
+  -H "X-API-Key: lbs_…" -F "username=maria"
+```
+
+```json
+{
+  "challenge_id": "8Kx…",
+  "username": "maria",
+  "digits": ["3", "7", "1", "9"],
+  "expires_in": 60,
+  "instructions": "Di en voz alta estos digitos…"
+}
+```
+
+**2. Grabar guiando al usuario.** Graba **en continuo** y muestra los dígitos
+**de uno en uno**. Las pausas son las que permiten trocear el audio.
+
+| Parámetro | Valor | Por qué |
+|---|---|---|
+| Formato | WAV PCM 16 bits mono | Lo que lee `wav.py` |
+| Frecuencia | ≥ 16 kHz | Se remuestrea a 16 kHz |
+| Margen inicial | 1.5 s | Que el usuario se sitúe |
+| Por dígito | 1.5 s | ~0.6 s hablando, ~0.9 s callado |
+| Margen final | 1.0 s | No cortar el último dígito |
+| Total (4 dígitos) | 8.5 s | |
+
+Pseudocódigo del guiado:
+
+```
+t0 = ahora()
+empezar_grabacion()
+mostrar("Prepárate…")
+para i, digito en digits:
+    esperar_hasta(t0 + 1.5 + i * 1.5)
+    mostrar_grande(digito)                 # el usuario lo dice AHORA
+    tras 0.8 s: mostrar("···")             # señal de callar
+esperar_hasta(t0 + 1.5 + len(digits) * 1.5 + 1.0)
+parar_grabacion()
+```
+
+Comprueba el pico antes de enviar: por debajo de 0.02 en escala −1..1, pide
+repetir en vez de gastar el desafío.
+
+**3. Verificar.**
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/voice/challenge/verify \
+  -H "X-API-Key: lbs_…" \
+  -F "username=maria" -F "challenge_id=8Kx…" \
+  -F "audio=@respuesta.wav"
+```
+
+```json
+{
+  "verified": true,
+  "username": "maria",
+  "uuid": "…",
+  "identity_ok": true,
+  "content_ok": true,
+  "expected": ["3", "7", "1", "9"],
+  "recognised": ["3", "7", "1", "9"],
+  "n_segments": 4,
+  "n_errors": 0,
+  "min_margin": 1.84,
+  "score": 1.21,
+  "scoring": "ubm-map",
+  "access_token": "eyJ…",
+  "expires_in": 900
+}
+```
+
+**Cómo reaccionar a cada fallo:**
+
+| Situación | Qué mostrar |
+|---|---|
+| `409` desafío inválido/caducado/usado | Volver al paso 1 con un desafío nuevo |
+| `409` grabación repetida | «Vuelve a grabar» |
+| `n_segments != len(expected)` | «Deja una pausa clara entre cada dígito» — es el fallo más común |
+| `content_ok: false` con `n_segments` correcto | «No se entendieron los dígitos» y nuevo desafío |
+| `identity_ok: false` | «La voz no coincide» — no revelar más |
+| `409` sin dígitos matriculados | Enviar al flujo de matrícula |
+
+Un desafío se consume **acierte o falle**. Cada intento necesita uno nuevo: no
+reutilices `challenge_id` ni reintentes con el mismo audio.
 
 ---
 
@@ -971,12 +1269,19 @@ no generaliza.
 | `create_db.py` | Crea la base de datos en PostgreSQL si no existe. |
 | `migrate_v05.py` | Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
 | `migrate_voice.py` | Añade las columnas de calibración y limpia plantillas de voz obsoletas. |
+| `migrate_digits.py` | Crea `voice_digit_templates`. **Puramente aditivo:** no toca ningún dato existente. |
 | `synth.py` | Genera locutores sintéticos para probar sin micrófono. **No mezcles su salida con usuarios reales.** |
 | `record_blink.py` | Graba una ráfaga real de parpadeo con tu webcam, con aviso de cuándo parpadear. |
-| `test_full_api.py` | Suite de integración completa contra un servidor en marcha. |
+| `record_digits.py` | Graba la matrícula de dígitos guiándote, y valida el troceo antes de subirla. |
+| `record_replay.py` | Graba pares directo/altavoz para el experimento de detección pasiva. |
+| `test_full_api.py` | Suite de integración completa. **Destructiva**, ver aviso abajo. |
 | `test_voice.py` | Suite de matrícula y verificación de locutor. |
 | `test_liveness.py` | Suite de ataques de presentación y parpadeo. |
+| `test_digits.py` | Troceo, desafíos de un solo uso y discriminación de dígitos. No toca la base. |
+| `test_challenge_api.py` | Desafío de extremo a extremo contra un servidor. Crea y borra **solo** su propio usuario temporal. |
 | `test_replay.py` | Demuestra que una voz reproducida por altavoz se acepta. |
+| `test_apikeys.py` | Valida cabecera, hash, permisos, caducidad, revocación y rotación de API keys. Revoca solo las suyas. |
+| `diagnose_voice_db.py` | Puntúa audio real contra **todas** las cuentas de la base y recomienda umbral. Solo lee. |
 | `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
 | `calibrate_face.py` | Calcula FAR/FRR/EER faciales con datos reales. |
 | `calibrate_voice.py` | Calcula FAR/FRR/EER de voz con datos reales. |
@@ -995,6 +1300,17 @@ la cara; el script avisa de cuántos hay.
 > [La población de fondo](#la-población-de-fondo-el-punto-más-frágil-del-sistema)).
 > Úsalo siempre contra una base de datos de pruebas, apuntando `DATABASE_URL` a
 > otra base antes de lanzarlo.
+>
+> Por eso el script **se niega a arrancar** si no le das permiso explícito:
+>
+> ```bash
+> ALLOW_DESTRUCTIVE=yes python scripts/test_full_api.py            # bash
+> $env:ALLOW_DESTRUCTIVE="yes"; python scripts/test_full_api.py    # PowerShell
+> ```
+>
+> Si lo que quieres es probar sin perder nada, usa `test_digits.py`,
+> `test_liveness.py`, `test_voice.py` o `test_challenge_api.py`: ninguno borra
+> datos ajenos.
 
 Acepta `BASE_URL`, `PORTAL_USER` y `PORTAL_PASSWORD` como variables de entorno.
 
@@ -1031,6 +1347,24 @@ Acepta `BASE_URL`, `PORTAL_USER` y `PORTAL_PASSWORD` como variables de entorno.
   grabaciones de 3-5 segundos y un GMM diagonal no se llega mucho más lejos; los
   sistemas actuales usan embeddings neuronales (x-vectors, ECAPA). Para decisiones
   sensibles usa el modo **Rostro + Voz**.
+- **El umbral de voz era demasiado bajo, se subió, y aun así no está validado.**
+  Con `VOICE_LLR_THRESHOLD=0.4`, 8 tomas frescas de una persona registrada abrían
+  **6 de 40** cuentas ajenas: 15 % de FAR. La identificación era perfecta (el
+  titular ganaba siempre, 1.35–2.32 frente a −1.28–1.13), así que fallaba el
+  umbral, no el algoritmo. Ahora está en `1.2`.
+  **Pero el 0 % de FAR resultante no significa lo que parece:** las otras cinco
+  cuentas de esa medida eran **voces sintéticas (TTS)**, no personas. Separar TTS
+  de habla real es una tarea fácil; dos personas reales del mismo sexo y edad se
+  parecen mucho más. Encima el margen es de solo **0.22** (peor genuino 1.35 frente
+  a mejor impostor 1.13) sobre un rango genuino de ~1.0: frágil ya con la población
+  fácil. Trata `1.2` como **suelo**, no como valor calibrado, y remide con
+  `scripts/diagnose_voice_db.py` en cuanto tengas 3+ personas reales.
+- **Audio prácticamente mudo se aceptaba como voz.** La VAD es *relativa* al pico
+  de la propia toma, así que una grabación con solo ruido de fondo (−70 dBFS de
+  RMS) marcaba ~490 frames como «voz» y llegaba a superar el umbral en varias
+  cuentas. Se añadió un suelo **absoluto** de −55 dBFS en `extract_features`; la
+  voz real medida va de −29 a −44 dBFS, así que hay ~11 dB de margen por ambos
+  lados.
 - **La voz necesita población, y de personas distintas.** El UBM exige al menos 2
   locutores de fondo **de personas diferentes**; varias grabaciones del mismo
   sujeto no cuentan y empeoran el resultado (impostor con LLR +3.92 frente a un
@@ -1057,8 +1391,31 @@ Acepta `BASE_URL`, `PORTAL_USER` y `PORTAL_PASSWORD` como variables de entorno.
   `scripts/test_replay.py`: una grabación genuina pasada por altavoz y micrófono
   puntúa 5.48 de LLR frente a un umbral de 0.4, es decir, **se acepta**. Esto no
   es un fallo de calibración: un GMM modela *quién* habla, no *si está vivo*.
-  Cerrarlo exige un detector de suplantación aparte (análisis de la banda alta,
-  artefactos de altavoz, reverberación, o un desafío de texto aleatorio).
+  En voz lo cierra el
+  [desafío de dígitos](#suplantación-por-grabación-el-desafío-de-dígitos), que es
+  **opcional**: `/api/voice/verify` sigue siendo vulnerable y hay que migrar cada
+  cliente a `/api/voice/challenge` a conciencia. **En rostro sigue abierto**: el
+  parpadeo descarta una foto, no un vídeo.
+- **La detección pasiva de replay en voz se midió y no funciona.** Seis
+  características acústicas sobre 5 tomas en directo y 2 de altavoz: ninguna
+  separa, y la variación entre tomas legítimas es mayor que la diferencia entre
+  directo y replay. No se implementó ningún detector pasivo porque calibrarlo con
+  esos datos habría dado una falsa sensación de seguridad. Detalle y tabla en
+  [Suplantación por grabación](#suplantación-por-grabación-el-desafío-de-dígitos).
+- **El desafío de dígitos no está validado entre sesiones.** El acierto por dígito
+  se midió entrenando y probando con la misma grabación (17/17), lo que es una
+  cota optimista. La cifra real —matricular un día, responder otro— está **sin
+  medir**. Mídela con `scripts/test_digits.py` antes de exigir el desafío a
+  usuarios reales.
+- **El desafío de dígitos no para una voz sintetizada en tiempo real.** Un modelo
+  que clone la voz del usuario y pronuncie los dígitos sorteados lo pasa. Es un
+  ataque mucho más caro que reproducir una grabación, pero no es teórico.
+- **Los desafíos viven en memoria del proceso.** Con varios workers de uvicorn, el
+  desafío emitido por uno no lo encuentra otro y devuelve 409. Con un solo worker
+  no aplica. Mismo problema pendiente que `ReplayGuard` y `RateLimiter`.
+- **La matrícula de dígitos reemplaza, no acumula.** Cada `digits/enroll` sustituye
+  los dígitos que envíe. No hay forma de promediar varias sesiones, que es la
+  primera mejora si el rechazo de legítimos resulta alto.
 
 ### Límites de escalado
 
@@ -1066,10 +1423,13 @@ Relevantes si se despliega con más de un proceso, que es lo necesario para
 atender miles de peticiones por minuto:
 
 - **Todo el estado compartido vive en memoria del proceso**: anti-replay, rate
-  limiter, caché del UBM y caché de API keys. Con varios workers o réplicas cada
-  uno tiene el suyo, así que el rate limiting se multiplica por el número de
-  procesos y el anti-replay deja de cubrir el caso en que el reenvío cae en otro
-  worker. Hace falta un almacén compartido tipo Redis.
+  limiter, caché del UBM, caché de API keys y **desafíos de dígitos**. Con varios
+  workers o réplicas cada uno tiene el suyo, así que el rate limiting se
+  multiplica por el número de procesos y el anti-replay deja de cubrir el caso en
+  que el reenvío cae en otro worker. Hace falta un almacén compartido tipo Redis.
+  Con los desafíos el fallo es más visible que degradado: emitir en un worker y
+  verificar en otro devuelve 409 y el login no funciona, así que **hasta migrar a
+  Redis hay que desplegar con un solo worker o con sesión pegajosa**.
 - **Revocar una API key tarda hasta 60 s en propagarse.** `invalidate_cache` solo
   limpia la caché del proceso que atiende la revocación; los demás siguen
   aceptando la key hasta que expire su entrada. Con un solo proceso es inmediato.
