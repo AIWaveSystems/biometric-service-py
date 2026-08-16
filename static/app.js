@@ -221,7 +221,10 @@ function activateTab(name) {
   document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
   const panel = $("tab-" + name);
   if (panel) panel.classList.add("active");
-  if (name === "gestion") loadUsers();
+  if (name === "gestion") {
+    loadUsers();
+    loadVoiceSystemBanner();
+  }
   if (name === "clientes") loadClients();
   if (name === "operadores") loadOperators();
 }
@@ -265,27 +268,25 @@ function capturePhoto(video, canvas) {
 async function captureBurst(video, canvas, seconds, fps, onCue) {
   const frames = [];
   const interval = 1000 / fps;
+  const count = Math.max(1, Math.round(seconds * fps));
   const start = performance.now();
-  const total = seconds * 1000;
-  const cueAt = total * BLINK_CUE_AT;
+  const cueAt = seconds * 1000 * BLINK_CUE_AT;
   let cued = false;
-  await new Promise((resolve) => {
-    const tick = async () => {
-      const elapsed = performance.now() - start;
-      if (elapsed >= total) return resolve();
-      if (!cued && elapsed >= cueAt) {
-        cued = true;
-        if (onCue) onCue();
-      }
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
-      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-      const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.85));
-      if (blob) frames.push(blob);
-      setTimeout(tick, interval);
-    };
-    tick();
-  });
+  for (let i = 0; i < count; i++) {
+    const elapsed = performance.now() - start;
+    if (!cued && elapsed >= cueAt) {
+      cued = true;
+      if (onCue) onCue();
+    }
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.85));
+    if (blob) frames.push(blob);
+    const target = start + (i + 1) * interval;
+    const wait = target - performance.now();
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  }
   return frames;
 }
 
@@ -720,7 +721,12 @@ $("login-challenge").addEventListener("click", async () => {
       toast("Apenas se detecta señal. Acércate al micrófono y repite.");
       return;
     }
-    window._challenge = { id: ch.challenge_id, blob: result.blob, digits: ch.digits };
+    window._challenge = {
+      id: ch.challenge_id,
+      blob: result.blob,
+      digits: ch.digits,
+      expiresAt: Date.now() + ch.expires_in * 1000,
+    };
     setState(state, `Grabado (${ch.digits.join(" ")}) · pulsa Entrar`, "ok");
   } catch (e) {
     setState(state, "Error", "err");
@@ -759,6 +765,10 @@ $("login-btn").addEventListener("click", async () => {
     if (mode === "challenge") {
       if (!window._challenge) {
         return showResult(out, "err", "Pide primero los dígitos y grábalos");
+      }
+      if (Date.now() > window._challenge.expiresAt) {
+        window._challenge = null;
+        return showResult(out, "err", "El desafío caducó. Pide uno nuevo y vuelve a grabar.");
       }
       const { id, blob, digits } = window._challenge;
       const fd = new FormData();
@@ -800,12 +810,18 @@ $("login-btn").addEventListener("click", async () => {
       window._loginFrames = null;
       setState($("login-photo-state"), "Sin captura", "");
       if (!r.verified) {
+        const usable =
+          r.n_usable != null
+            ? ` · Usables: ${r.n_usable}/${r.n_frames}` +
+              (r.n_moved ? ` (${r.n_moved} con movimiento)` : "")
+            : "";
         return showResult(
           out,
           "err",
           `Rostro NO verificado.\n${r.reason || ""}\n` +
             `Liveness: ${r.liveness_passed ? "detectado" : "no detectado"} · ` +
-            `Similitud: ${r.similarity} (umbral ${r.threshold}) · Caras: ${r.n_faces}/${r.n_frames}`
+            `Similitud: ${r.similarity} (umbral ${r.threshold}) · ` +
+            `Caras: ${r.n_faces}/${r.n_frames}${usable}`
         );
       }
       faceInfo = `Rostro verificado (liveness OK · similitud ${r.similarity})`;
@@ -848,6 +864,30 @@ const COLS = 6;
 const badge = (ok, extra) =>
   `<span class="badge ${ok ? "yes" : "no"}">${ok ? "Sí" : "No"}</span>` +
   (extra ? ` <span class="muted-inline">${extra}</span>` : "");
+const warnBadge = (text) => `<span class="badge warn">${text}</span>`;
+
+async function loadVoiceSystemBanner() {
+  const el = $("voice-system-banner");
+  if (!el) return;
+  try {
+    const s = await api("/api/voice/system");
+    if (s.ubm_ready) {
+      el.className = "system-banner ok";
+      el.textContent =
+        `Voz: modo ubm-map disponible (${s.voice_users} locutores con plantilla). ` +
+        `Desafío de dígitos: ${s.challenge_digits} por intento, mín. ${s.challenge_min_enrolled} matriculados.`;
+    } else {
+      el.className = "system-banner warn";
+      el.textContent =
+        `Voz: solo ${s.voice_users} locutor(es) con plantilla. ` +
+        `Registra al menos ${s.ubm_min_users} personas distintas para scoring ubm-map robusto ` +
+        `(ahora el login pasivo usa gmm-z, más débil).`;
+    }
+    el.hidden = false;
+  } catch {
+    el.hidden = true;
+  }
+}
 
 let editando = null;
 
@@ -962,8 +1002,9 @@ function buildEditor(u, refrescar) {
   // --- rostro ---
   const rostro = seccion(
     `Rostro — ${u.face_templates.length} plantilla(s)`,
-    "Añadir plantillas en distintas luces y ángulos es lo que reduce los falsos " +
-      "rechazos. Las fotos casi idénticas a una existente se descartan solas."
+    u.face_templates.length >= 3
+      ? "Varias plantillas en distintas luces reducen falsos rechazos."
+      : "<strong>Recomendado:</strong> al menos 3 plantillas en distintas luces y ángulos."
   );
   if (u.face_templates.length) {
     const chips = document.createElement("div");
@@ -1115,9 +1156,13 @@ function buildEditor(u, refrescar) {
   // --- dígitos ---
   const dig = seccion(
     `Dígitos — ${u.digits.length ? u.digits.join(" ") : "sin matricular"}`,
-    u.digits.length >= 5
-      ? "Puede entrar con el método <strong>Voz + dígitos</strong>, que resiste una grabación previa."
-      : "Sin al menos 5 dígitos no puede usarse el desafío. Se matricula desde la pestaña Registrar."
+    u.digits_challenge_ready
+      ? "Puede entrar con <strong>Voz + dígitos</strong> (resiste grabaciones previas)."
+      : !u.digits_cmvn_ok && u.digits.length
+        ? "<strong>Matrícula antigua:</strong> vuelve a grabar los 10 dígitos (falta normalización CMVN)."
+        : u.digits.length >= 5
+          ? "Faltan dígitos o la matrícula no está completa para el desafío."
+          : "Sin al menos 5 dígitos matriculados no puede usarse el desafío."
   );
   const estadoDig = document.createElement("span");
   estadoDig.className = "state";
@@ -1175,9 +1220,19 @@ async function loadUsers() {
       tr.innerHTML = `
         <td>${u.username}</td>
         <td>${badge(u.has_password)}</td>
-        <td>${badge(u.face_templates.length > 0, u.face_templates.length || "")}</td>
+        <td>${
+          u.face_templates.length >= 3
+            ? badge(true, u.face_templates.length)
+            : warnBadge(u.face_templates.length ? `${u.face_templates.length}/3` : "0")
+        }</td>
         <td>${badge(u.voice_templates.length > 0)}</td>
-        <td>${badge(u.digits.length > 0, u.digits.length ? `${u.digits.length}/10` : "")}</td>`;
+        <td>${
+          u.digits_challenge_ready
+            ? badge(true, `${u.digits.length}/10`)
+            : u.digits.length
+              ? warnBadge(`${u.digits.length}/10`)
+              : badge(false)
+        }</td>`;
 
       const acciones = document.createElement("td");
       acciones.className = "acciones";
@@ -1240,7 +1295,10 @@ async function loadUsers() {
   }
 }
 
-$("refresh-users").addEventListener("click", loadUsers);
+$("refresh-users").addEventListener("click", () => {
+  loadUsers();
+  loadVoiceSystemBanner();
+});
 
 function clientStatus(c) {
   if (!c.active) return '<span class="badge no">Revocada</span>';
