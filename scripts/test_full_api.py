@@ -112,7 +112,7 @@ r = requests.post(
     headers=H,
     data={"username": "bob"},
     files=[
-        ("images", ("messi.jpg", open("scripts/messi.jpg", "rb"), "image/jpeg")),
+        ("images", ("messi_big.jpg", open("scripts/messi_big.jpg", "rb"), "image/jpeg")),
         ("audio", ("b1.wav", open("scripts/B_1.wav", "rb"), "audio/wav")),
     ],
 )
@@ -157,7 +157,7 @@ r = requests.post(
     f"{BASE}/api/face/login",
     headers=H,
     data={"username": "alice"},
-    files=frame_files(blink_sequence("scripts/messi.jpg"), "m"),
+    files=frame_files(blink_sequence("scripts/messi_big.jpg"), "m"),
 ).json()
 check("impostor con parpadeo -> rechaza", not r["verified"], f"sim {r['similarity']}")
 
@@ -204,7 +204,16 @@ r = requests.post(
 )
 check("password incorrecta -> 401", r.status_code == 401)
 
-print("\n=== 11. Gestion ===")
+print("\n=== 11. Identificacion 1:N ===")
+r = requests.post(
+    f"{BASE}/api/face/identify",
+    headers=H,
+    files={"image": ("lena.jpg", open("scripts/lena.jpg", "rb"), "image/jpeg")},
+).json()
+check("identify reconoce a alice", r.get("username") == "alice", f"sim {r.get('similarity')}")
+check("identify devuelve uuid", bool(r.get("uuid")), str(r.get("uuid"))[:8])
+
+print("\n=== 12. Gestion ===")
 users = requests.get(f"{BASE}/api/users", headers=H).json()
 alice = next(u for u in users if u["username"] == "alice")
 check(
@@ -213,6 +222,18 @@ check(
     f"{len(alice['face_templates'])} plantillas",
 )
 check("borrar bob", requests.delete(f"{BASE}/api/users/bob", headers=H).status_code == 200)
+
+r = requests.post(
+    f"{BASE}/api/face/identify",
+    headers=H,
+    files={"image": ("messi_big.jpg", open("scripts/messi_big.jpg", "rb"), "image/jpeg")},
+).json()
+check(
+    "identify NO inventa usuario tras borrar a bob",
+    r.get("username") is None,
+    f"sim {r.get('similarity')}",
+)
+
 requests.delete(f"{BASE}/api/users/dave", headers=H)
 
 print(f"\nRESULTADO: {ok} pasaron, {fail} fallaron")
