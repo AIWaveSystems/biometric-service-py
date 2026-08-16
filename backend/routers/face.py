@@ -139,21 +139,21 @@ def login(
 
     payloads = [f.file.read() for f in frames]
 
-    crops: list[np.ndarray | None] = []
+    sequence: list[tuple[np.ndarray, np.ndarray] | None] = []
     feature_list: list[np.ndarray] = []
     quality_problem: str | None = None
     for data in payloads:
         try:
             img = detector.load_image(data)
         except ValueError:
+            sequence.append(None)
             continue
         face = embedder.primary_face(img)
         if face is None:
-            crops.append(None)
+            sequence.append(None)
             continue
+        sequence.append((detector.to_gray(img), face))
         rect = embedder.face_rect(face, img.shape)
-        x, y, w, h = rect
-        crops.append(detector.to_gray(img)[y : y + h, x : x + w])
         normalized = detector.normalize_face(img, rect)
         problem = quality.check(quality.measure(normalized, rect))
         if problem is not None:
@@ -162,7 +162,7 @@ def login(
         feature_list.append(embedder.embed(img, face))
 
     result = liveness.analyze(
-        crops,
+        sequence,
         min_faces=settings.liveness_min_faces,
         max_gap_ratio=settings.liveness_max_gap_ratio,
     )
@@ -195,8 +195,13 @@ def login(
                 f"Solo se te detecto en {result['n_faces']} de {result['n_frames']} frames. "
                 "Mira de frente a la camara sin girar la cabeza durante la captura."
             )
+        elif result["n_usable"] < settings.liveness_min_faces:
+            reason = (
+                "Hubo demasiado movimiento durante la captura. "
+                "Quedate quieto y parpadea cuando el portal te lo indique."
+            )
         elif not blink:
-            reason = "No se detecto parpadeo. Parpadea una vez durante la captura."
+            reason = "No se detecto parpadeo. Parpadea cuando el portal te lo indique."
         else:
             reason = "El rostro no coincide con las plantillas registradas."
 
