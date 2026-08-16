@@ -370,3 +370,105 @@ th { color: var(--muted); font-weight: 500; }
   from { transform: translateX(-50%) scale(1); }
   to   { transform: translateX(-50%) scale(1.07); }
 }
+
+.digit-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 118px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.digit-cue {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.digit-cue.wait {
+  font-size: 22px;
+  color: #e2e8f0;
+}
+
+.digit-cue.go {
+  font-size: 72px;
+  line-height: 1;
+  letter-spacing: 0;
+  color: #22c55e;
+  text-shadow: 0 0 26px rgba(34, 197, 94, 0.45);
+  animation: digit-pulse 0.4s ease-in-out infinite alternate;
+}
+
+@keyframes digit-pulse {
+  from { transform: scale(1); }
+  to   { transform: scale(1.09); }
+}
+
+.acciones { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.muted-inline { color: var(--muted); font-size: 12px; }
+
+tr.editor-fila > td { padding: 0; background: rgba(15, 23, 42, 0.45); }
+
+.editor { padding: 18px 20px; display: grid; gap: 18px; }
+
+.editor-block h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.editor-block + .editor-block { border-top: 1px solid rgba(148, 163, 184, 0.16); padding-top: 16px; }
+
+.editor-block .hint { margin: 0 0 10px; }
+
+.editor-block code {
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.editor-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+
+.editor-row input[type="text"],
+.editor-row input[type="password"] { flex: 1 1 200px; min-width: 160px; }
+
+.editor-row input[type="file"] { flex: 1 1 240px; font-size: 13px; color: var(--muted); }
+
+.editor-cam { margin-top: 10px; max-width: 320px; }
+.editor-cam video { width: 100%; border-radius: 10px; display: block; }
+
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.chip button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.chip button:hover { color: #f87171; }
+
+.editor .digit-stage { min-height: 96px; margin-top: 10px; }

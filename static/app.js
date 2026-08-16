@@ -528,6 +528,7 @@ function syncLoginUI() {
   $("login-password-field").hidden = mode !== "password";
   $("login-face-sensor").hidden = !["face", "both"].includes(mode);
   $("login-voice-sensor").hidden = !["voice", "both"].includes(mode);
+  $("login-challenge-sensor").hidden = mode !== "challenge";
   $("login-result").textContent = "";
   $("login-result").className = "result";
 }
@@ -583,6 +584,153 @@ $("login-record").addEventListener("click", async () => {
   if (blob) window._loginVoice = blob;
 });
 
+const ENROLL_DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+$("enroll-digits").addEventListener("click", async () => {
+  const username = $("reg-username").value.trim();
+  const btn = $("enroll-digits");
+  const state = $("enroll-digits-state");
+  const out = $("enroll-digits-result");
+  if (!username) return toast("Escribe arriba el nombre de usuario");
+  if (audioCtx) return toast("Ya hay una grabación en curso");
+
+  btn.disabled = true;
+  $("enroll-digits-send").disabled = true;
+  window._digitEnroll = null;
+  clearPlayback("enroll");
+  out.textContent = "";
+  out.className = "result";
+  setBtnText(btn, "Grabando…");
+  try {
+    const result = await recordPrompted(ENROLL_DIGITS, $("enroll-cue"));
+    if (!result) {
+      setState(state, "No se pudo grabar", "err");
+      return;
+    }
+    showPlayback("enroll", result.blob);
+    if (result.peak < 0.02) {
+      setState(state, "Volumen muy bajo, repite", "err");
+      toast("Apenas se detecta señal. Acércate al micrófono y repite.");
+      return;
+    }
+    window._digitEnroll = result.blob;
+    $("enroll-digits-send").disabled = false;
+    setState(state, `Grabado ${result.seconds.toFixed(1)}s · revisa y sube`, "ok");
+  } catch {
+    setState(state, "Error de grabación", "err");
+  } finally {
+    btn.disabled = false;
+    setBtnText(btn, "Grabar los 10 dígitos");
+  }
+});
+
+$("enroll-digits-send").addEventListener("click", async () => {
+  const username = $("reg-username").value.trim();
+  const btn = $("enroll-digits-send");
+  const out = $("enroll-digits-result");
+  if (!window._digitEnroll) return;
+
+  btn.disabled = true;
+  setBtnText(btn, "Subiendo…");
+  try {
+    const fd = new FormData();
+    fd.append("username", username);
+    fd.append("digits", ENROLL_DIGITS.join(","));
+    fd.append("audio", window._digitEnroll, "digits.wav");
+    const r = await api("/api/voice/digits/enroll", { method: "POST", body: fd });
+    window._digitEnroll = null;
+    clearPlayback("enroll");
+    setState($("enroll-digits-state"), "Sin matrícula", "");
+    showResult(
+      out,
+      "ok",
+      `Dígitos matriculados para ${r.username}: ${r.digits.join(" ")}\n` +
+        `${r.n_segments} locuciones en ${r.duration_seconds}s. ` +
+        `Ya puede entrar con "Voz + dígitos".`
+    );
+  } catch (e) {
+    showResult(out, "err", e.message);
+    btn.disabled = false;
+  } finally {
+    setBtnText(btn, "Subir matrícula");
+  }
+});
+
+const CHALLENGE_LEAD = 1.5;
+const CHALLENGE_PER_DIGIT = 1.5;
+const CHALLENGE_TAIL = 1.0;
+
+/* Graba en continuo mientras muestra los digitos de uno en uno. El silencio
+   entre ellos es lo que permite trocear la toma en el servidor, asi que la
+   pausa es parte del protocolo, no decoracion. */
+async function recordPrompted(digits, cueEl) {
+  const show = (text, cls) => {
+    cueEl.textContent = text;
+    cueEl.className = "digit-cue" + (cls ? " " + cls : "");
+  };
+  const total = CHALLENGE_LEAD + digits.length * CHALLENGE_PER_DIGIT + CHALLENGE_TAIL;
+  const pending = recordVoice(total);
+  if (!pending) return null;
+  const start = performance.now();
+  const at = (s) =>
+    new Promise((r) => setTimeout(r, Math.max(0, start + s * 1000 - performance.now())));
+
+  show("Prepárate…", "wait");
+  for (let i = 0; i < digits.length; i++) {
+    await at(CHALLENGE_LEAD + i * CHALLENGE_PER_DIGIT);
+    show(digits[i], "go");
+    at(CHALLENGE_LEAD + i * CHALLENGE_PER_DIGIT + CHALLENGE_PER_DIGIT * 0.55).then(() =>
+      show("···", "wait")
+    );
+  }
+  await at(CHALLENGE_LEAD + digits.length * CHALLENGE_PER_DIGIT);
+  show("Listo", "wait");
+  const result = await pending;
+  show("···", "");
+  return result;
+}
+
+$("login-challenge").addEventListener("click", async () => {
+  const username = $("login-username").value.trim();
+  const btn = $("login-challenge");
+  const state = $("login-challenge-state");
+  if (!username) return toast("Ingresa primero tu nombre de usuario");
+  if (audioCtx) return toast("Ya hay una grabación en curso");
+
+  btn.disabled = true;
+  window._challenge = null;
+  clearPlayback("challenge");
+  setState(state, "Pidiendo desafío…", "busy");
+  try {
+    const fd = new FormData();
+    fd.append("username", username);
+    const ch = await api("/api/voice/challenge", { method: "POST", body: fd });
+
+    setBtnText(btn, "Grabando…");
+    setState(state, `Di: ${ch.digits.join(" · ")}`, "busy");
+    const result = await recordPrompted(ch.digits, $("challenge-cue"));
+
+    if (!result) {
+      setState(state, "No se pudo grabar", "err");
+      return;
+    }
+    showPlayback("challenge", result.blob);
+    if (result.peak < 0.02) {
+      setState(state, "Volumen muy bajo, repite", "err");
+      toast("Apenas se detecta señal. Acércate al micrófono y repite.");
+      return;
+    }
+    window._challenge = { id: ch.challenge_id, blob: result.blob, digits: ch.digits };
+    setState(state, `Grabado (${ch.digits.join(" ")}) · pulsa Entrar`, "ok");
+  } catch (e) {
+    setState(state, "Error", "err");
+    showResult($("login-result"), "err", e.message);
+  } finally {
+    btn.disabled = false;
+    setBtnText(btn, "Pedir dígitos y grabar");
+  }
+});
+
 function sessionLine(res) {
   if (!res.access_token) return "";
   const minutes = Math.round((res.expires_in || 0) / 60);
@@ -606,6 +754,38 @@ $("login-btn").addEventListener("click", async () => {
       });
       showResult(out, "ok", `Autenticado correctamente.${sessionLine(r)}`);
       return;
+    }
+
+    if (mode === "challenge") {
+      if (!window._challenge) {
+        return showResult(out, "err", "Pide primero los dígitos y grábalos");
+      }
+      const { id, blob, digits } = window._challenge;
+      const fd = new FormData();
+      fd.append("username", username);
+      fd.append("challenge_id", id);
+      fd.append("audio", blob, "challenge.wav");
+      const r = await api("/api/voice/challenge/verify", { method: "POST", body: fd });
+      window._challenge = null;
+      clearPlayback("challenge");
+      setState($("login-challenge-state"), "Sin desafío", "");
+      if (!r.verified) {
+        return showResult(
+          out,
+          "err",
+          `Acceso denegado.\n${r.reason || ""}\n` +
+            `Identidad: ${r.identity_ok ? "OK" : "no coincide"} (${r.scoring} ${r.score}) · ` +
+            `Contenido: ${r.content_ok ? "OK" : "no coincide"}\n` +
+            `Pedidos: ${digits.join(" ")} · Reconocidos: ${r.recognised.join(" ")} ` +
+            `(${r.n_segments} locuciones, ${r.n_errors} errores)`
+        );
+      }
+      return showResult(
+        out,
+        "ok",
+        `Voz y dígitos verificados (${digits.join(" ")}).\n` +
+          `Bienvenido, ${username}.${sessionLine(r)}`
+      );
     }
 
     let faceInfo = "";
@@ -664,39 +844,399 @@ $("login-btn").addEventListener("click", async () => {
   }
 });
 
+const COLS = 6;
+const badge = (ok, extra) =>
+  `<span class="badge ${ok ? "yes" : "no"}">${ok ? "Sí" : "No"}</span>` +
+  (extra ? ` <span class="muted-inline">${extra}</span>` : "");
+
+let editando = null;
+
+function userPath(username, suffix = "") {
+  return `/api/users/${encodeURIComponent(username)}${suffix}`;
+}
+
+/* El editor se construye en JS y no en el HTML porque hay uno por fila y sus
+   controles llaman a endpoints distintos con el nombre de usuario dentro. */
+function buildEditor(u, refrescar) {
+  const box = document.createElement("div");
+  box.className = "editor";
+
+  const out = document.createElement("div");
+  out.className = "result";
+
+  const ok = (msg) => {
+    showResult(out, "ok", msg);
+    refrescar();
+  };
+  const err = (e) => showResult(out, "err", e.message);
+
+  const seccion = (titulo, hint) => {
+    const s = document.createElement("div");
+    s.className = "editor-block";
+    s.innerHTML = `<h4>${titulo}</h4>` + (hint ? `<p class="hint">${hint}</p>` : "");
+    box.appendChild(s);
+    return s;
+  };
+
+  const fila = (parent) => {
+    const f = document.createElement("div");
+    f.className = "editor-row";
+    parent.appendChild(f);
+    return f;
+  };
+
+  const boton = (texto, clase, accion) => {
+    const b = document.createElement("button");
+    b.className = "btn " + (clase || "");
+    b.innerHTML = `<span>${texto}</span>`;
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      const previo = b.textContent;
+      setBtnText(b, "…");
+      try {
+        await accion();
+      } catch (e) {
+        err(e);
+      } finally {
+        b.disabled = false;
+        setBtnText(b, previo);
+      }
+    });
+    return b;
+  };
+
+  // --- identidad ---
+  const ident = seccion(
+    "Identidad",
+    `UUID <code>${u.uuid}</code> — es lo que guardan los sistemas clientes. ` +
+      `Renombrar NO lo cambia, así que sus vínculos se conservan.`
+  );
+  const fIdent = fila(ident);
+  const inNombre = document.createElement("input");
+  inNombre.type = "text";
+  inNombre.value = u.username;
+  fIdent.appendChild(inNombre);
+  fIdent.appendChild(
+    boton("Renombrar", "", async () => {
+      const nuevo = inNombre.value.trim();
+      if (!nuevo || nuevo === u.username) return;
+      const fd = new FormData();
+      fd.append("new_username", nuevo);
+      const r = await api(userPath(u.username, "/rename"), { method: "POST", body: fd });
+      ok(`Renombrado: ${r.previous} → ${r.username}`);
+    })
+  );
+
+  // --- contraseña ---
+  const clave = seccion(
+    "Contraseña",
+    u.has_password
+      ? "Tiene contraseña. Puedes cambiarla o quitarla y dejarlo solo con biometría."
+      : "No tiene contraseña. Solo puede entrar con biometría."
+  );
+  const fClave = fila(clave);
+  const inClave = document.createElement("input");
+  inClave.type = "password";
+  inClave.placeholder = "Nueva contraseña (mín. 6)";
+  fClave.appendChild(inClave);
+  fClave.appendChild(
+    boton("Guardar", "primary", async () => {
+      if (inClave.value.length < 6) throw new Error("Mínimo 6 caracteres");
+      const fd = new FormData();
+      fd.append("password", inClave.value);
+      await api(userPath(u.username, "/password"), { method: "POST", body: fd });
+      inClave.value = "";
+      ok("Contraseña actualizada");
+    })
+  );
+  if (u.has_password) {
+    fClave.appendChild(
+      boton("Quitar", "danger", async () => {
+        if (!confirm(`¿Quitar la contraseña de ${u.username}?`)) return;
+        await api(userPath(u.username, "/password"), { method: "POST", body: new FormData() });
+        ok("Contraseña retirada: ahora solo entra con biometría");
+      })
+    );
+  }
+
+  // --- rostro ---
+  const rostro = seccion(
+    `Rostro — ${u.face_templates.length} plantilla(s)`,
+    "Añadir plantillas en distintas luces y ángulos es lo que reduce los falsos " +
+      "rechazos. Las fotos casi idénticas a una existente se descartan solas."
+  );
+  if (u.face_templates.length) {
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    for (const t of u.face_templates) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.innerHTML = `#${t.id} <button title="Borrar esta plantilla">✕</button>`;
+      chip.querySelector("button").addEventListener("click", async () => {
+        if (u.face_templates.length === 1 && !confirm("Es la única plantilla facial. ¿Borrarla?"))
+          return;
+        try {
+          await api(`/api/face/templates/${t.id}`, { method: "DELETE" });
+          ok(`Plantilla facial #${t.id} borrada`);
+        } catch (e) {
+          err(e);
+        }
+      });
+      chips.appendChild(chip);
+    }
+    rostro.appendChild(chips);
+  }
+  const fRostro = fila(rostro);
+  const inFotos = document.createElement("input");
+  inFotos.type = "file";
+  inFotos.accept = "image/*";
+  inFotos.multiple = true;
+  fRostro.appendChild(inFotos);
+  fRostro.appendChild(
+    boton("Subir fotos", "primary", async () => {
+      if (!inFotos.files.length) throw new Error("Elige al menos una foto");
+      const fd = new FormData();
+      for (const f of inFotos.files) fd.append("images", f, f.name);
+      const r = await api(userPath(u.username, "/faces"), { method: "POST", body: fd });
+      inFotos.value = "";
+      ok(
+        `Añadidas ${r.added} plantilla(s). Total: ${r.total_templates}.` +
+          (r.redundant ? ` ${r.redundant} descartada(s) por redundancia.` : "") +
+          (r.without_face ? ` ${r.without_face} sin cara detectable.` : "")
+      );
+    })
+  );
+
+  const camWrap = document.createElement("div");
+  camWrap.className = "editor-cam";
+  camWrap.hidden = true;
+  const video = document.createElement("video");
+  video.id = `edit-video-${u.uuid}`;
+  video.autoplay = true;
+  video.playsInline = true;
+  video.muted = true;
+  const canvas = document.createElement("canvas");
+  canvas.hidden = true;
+  camWrap.appendChild(video);
+  camWrap.appendChild(canvas);
+  rostro.appendChild(camWrap);
+
+  const pendientes = [];
+  const estadoCam = document.createElement("span");
+  estadoCam.className = "state";
+  const fCam = fila(rostro);
+  fCam.appendChild(
+    boton("Usar cámara", "", async () => {
+      if (camStreams[video.id]) return;
+      camWrap.hidden = false;
+      await openCamera(video);
+      setState(estadoCam, "Cámara activa", "busy");
+    })
+  );
+  fCam.appendChild(
+    boton("Tomar foto", "", async () => {
+      if (!camStreams[video.id]) throw new Error("Activa primero la cámara");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0);
+      const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.92));
+      pendientes.push(blob);
+      setState(estadoCam, `${pendientes.length} foto(s) en cola`, "ok");
+    })
+  );
+  fCam.appendChild(
+    boton("Subir capturas", "primary", async () => {
+      if (!pendientes.length) throw new Error("No hay fotos capturadas");
+      const fd = new FormData();
+      pendientes.forEach((b, i) => fd.append("images", b, `cam${i}.jpg`));
+      const r = await api(userPath(u.username, "/faces"), { method: "POST", body: fd });
+      pendientes.length = 0;
+      closeCamera(video);
+      camWrap.hidden = true;
+      setState(estadoCam, "", "");
+      ok(`Añadidas ${r.added} plantilla(s) desde la cámara. Total: ${r.total_templates}.`);
+    })
+  );
+  fCam.appendChild(estadoCam);
+
+  // --- voz ---
+  const voz = seccion(
+    `Voz — ${u.voice_templates.length ? "matriculada" : "sin matricular"}`,
+    "Registrar de nuevo REEMPLAZA la plantilla anterior: solo se guarda una por usuario."
+  );
+  const fVoz = fila(voz);
+  const inAudio = document.createElement("input");
+  inAudio.type = "file";
+  inAudio.accept = "audio/wav";
+  fVoz.appendChild(inAudio);
+  fVoz.appendChild(
+    boton("Subir voz", "primary", async () => {
+      if (!inAudio.files.length) throw new Error("Elige un WAV");
+      const fd = new FormData();
+      fd.append("username", u.username);
+      fd.append("audio", inAudio.files[0], inAudio.files[0].name);
+      const r = await api("/api/voice/register", { method: "POST", body: fd });
+      inAudio.value = "";
+      ok(`Voz registrada: ${r.duration_seconds}s, ${r.n_frames} frames`);
+    })
+  );
+  const estadoVoz = document.createElement("span");
+  estadoVoz.className = "state";
+  const fVoz2 = fila(voz);
+  fVoz2.appendChild(
+    boton(`Grabar ${ENROLL_SECONDS}s`, "", async () => {
+      if (audioCtx) throw new Error("Ya hay una grabación en curso");
+      setState(estadoVoz, "Grabando, habla ahora…", "busy");
+      const res = await recordVoice(ENROLL_SECONDS);
+      if (!res) throw new Error("No se pudo grabar");
+      if (res.peak < 0.02) {
+        setState(estadoVoz, "Volumen muy bajo, repite", "err");
+        return;
+      }
+      const fd = new FormData();
+      fd.append("username", u.username);
+      fd.append("audio", res.blob, "voz.wav");
+      const r = await api("/api/voice/register", { method: "POST", body: fd });
+      setState(estadoVoz, "", "");
+      ok(`Voz registrada: ${r.duration_seconds}s, ${r.n_frames} frames`);
+    })
+  );
+  fVoz2.appendChild(estadoVoz);
+  if (u.voice_templates.length) {
+    fVoz2.appendChild(
+      boton("Borrar voz", "danger", async () => {
+        if (!confirm(`¿Borrar la plantilla de voz de ${u.username}?`)) return;
+        await api(`/api/voice/templates/${u.voice_templates[0].id}`, { method: "DELETE" });
+        ok("Plantilla de voz borrada");
+      })
+    );
+  }
+
+  // --- dígitos ---
+  const dig = seccion(
+    `Dígitos — ${u.digits.length ? u.digits.join(" ") : "sin matricular"}`,
+    u.digits.length >= 5
+      ? "Puede entrar con el método <strong>Voz + dígitos</strong>, que resiste una grabación previa."
+      : "Sin al menos 5 dígitos no puede usarse el desafío. Se matricula desde la pestaña Registrar."
+  );
+  const estadoDig = document.createElement("span");
+  estadoDig.className = "state";
+  const fDig = fila(dig);
+  fDig.appendChild(
+    boton("Grabar los 10 dígitos", "primary", async () => {
+      if (audioCtx) throw new Error("Ya hay una grabación en curso");
+      const escenario = document.createElement("div");
+      escenario.className = "digit-stage";
+      const cue = document.createElement("div");
+      cue.className = "digit-cue";
+      cue.textContent = "···";
+      escenario.appendChild(cue);
+      dig.appendChild(escenario);
+      try {
+        const res = await recordPrompted(ENROLL_DIGITS, cue);
+        if (!res) throw new Error("No se pudo grabar");
+        if (res.peak < 0.02) throw new Error("Volumen muy bajo, repite");
+        const fd = new FormData();
+        fd.append("username", u.username);
+        fd.append("digits", ENROLL_DIGITS.join(","));
+        fd.append("audio", res.blob, "digits.wav");
+        const r = await api("/api/voice/digits/enroll", { method: "POST", body: fd });
+        ok(`Dígitos matriculados: ${r.digits.join(" ")} (${r.n_segments} locuciones)`);
+      } finally {
+        escenario.remove();
+      }
+    })
+  );
+  if (u.digits.length) {
+    fDig.appendChild(
+      boton("Borrar dígitos", "danger", async () => {
+        if (!confirm(`¿Borrar la matrícula de dígitos de ${u.username}?`)) return;
+        const r = await api(`/api/voice/digits/${encodeURIComponent(u.username)}`, {
+          method: "DELETE",
+        });
+        ok(`${r.deleted} dígito(s) borrados`);
+      })
+    );
+  }
+  fDig.appendChild(estadoDig);
+
+  box.appendChild(out);
+  return { box, cleanup: () => closeCamera(video) };
+}
+
 async function loadUsers() {
   const tbody = $("users-table").querySelector("tbody");
-  tbody.innerHTML = '<tr><td colspan="5">Cargando…</td></tr>';
+  tbody.innerHTML = `<tr><td colspan="${COLS}">Cargando…</td></tr>`;
   try {
     const users = await api("/api/users");
     tbody.innerHTML = "";
     for (const u of users) {
       const tr = document.createElement("tr");
-      const badge = (ok) => `<span class="badge ${ok ? "yes" : "no"}">${ok ? "Sí" : "No"}</span>`;
+      tr.innerHTML = `
+        <td>${u.username}</td>
+        <td>${badge(u.has_password)}</td>
+        <td>${badge(u.face_templates.length > 0, u.face_templates.length || "")}</td>
+        <td>${badge(u.voice_templates.length > 0)}</td>
+        <td>${badge(u.digits.length > 0, u.digits.length ? `${u.digits.length}/10` : "")}</td>`;
+
+      const acciones = document.createElement("td");
+      acciones.className = "acciones";
+
+      const edit = document.createElement("button");
+      edit.className = "btn";
+      edit.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"></path></svg>' +
+        "<span>Editar</span>";
+
       const del = document.createElement("button");
       del.className = "btn danger";
       del.innerHTML =
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>' +
         "<span>Eliminar</span>";
       del.addEventListener("click", async () => {
-        if (!confirm(`¿Eliminar al usuario ${u.username}?`)) return;
-        await api(`/api/users/${encodeURIComponent(u.username)}`, { method: "DELETE" });
+        if (!confirm(`¿Eliminar al usuario ${u.username}? Se borran también sus plantillas.`))
+          return;
+        await api(userPath(u.username), { method: "DELETE" });
         toast(`Usuario ${u.username} eliminado`);
+        editando = null;
         loadUsers();
       });
-      tr.innerHTML = `
-        <td>${u.username}</td>
-        <td>${badge(u.has_password)}</td>
-        <td>${u.face_templates.length ? badge(true) + ` (${u.face_templates.length})` : badge(false)}</td>
-        <td>${u.voice_templates.length ? badge(true) + ` (${u.voice_templates.length})` : badge(false)}</td>`;
-      const td = document.createElement("td");
-      td.appendChild(del);
-      tr.appendChild(td);
+
+      acciones.appendChild(edit);
+      acciones.appendChild(del);
+      tr.appendChild(acciones);
       tbody.appendChild(tr);
+
+      const fila = document.createElement("tr");
+      fila.className = "editor-fila";
+      const celda = document.createElement("td");
+      celda.colSpan = COLS;
+      fila.appendChild(celda);
+      fila.hidden = u.uuid !== editando;
+      tbody.appendChild(fila);
+
+      let montado = null;
+      const montar = () => {
+        if (montado) return;
+        montado = buildEditor(u, loadUsers);
+        celda.appendChild(montado.box);
+      };
+      if (u.uuid === editando) montar();
+
+      edit.addEventListener("click", () => {
+        const abrir = fila.hidden;
+        editando = abrir ? u.uuid : null;
+        fila.hidden = !abrir;
+        if (abrir) montar();
+        else if (montado) montado.cleanup();
+        setBtnText(edit, abrir ? "Cerrar" : "Editar");
+      });
+      if (u.uuid === editando) setBtnText(edit, "Cerrar");
     }
-    if (!users.length) tbody.innerHTML = '<tr><td colspan="5">Sin usuarios registrados</td></tr>';
+    if (!users.length)
+      tbody.innerHTML = `<tr><td colspan="${COLS}">Sin usuarios registrados</td></tr>`;
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5">Error: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${COLS}">Error: ${e.message}</td></tr>`;
   }
 }
 

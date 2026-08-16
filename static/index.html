@@ -65,6 +65,7 @@
             <option value="password">Contraseña</option>
             <option value="face">Rostro</option>
             <option value="voice">Voz</option>
+            <option value="challenge">Voz + dígitos (anti-grabación)</option>
             <option value="both">Rostro + Voz</option>
           </select>
         </div>
@@ -112,6 +113,29 @@
             <div class="playback" id="login-playback" hidden>
               <label>Revisa tu grabación antes de entrar</label>
               <audio id="login-audio" controls preload="metadata"></audio>
+            </div>
+          </div>
+          <div class="sensor" id="login-challenge-sensor" hidden>
+            <div class="digit-stage">
+              <div id="challenge-cue" class="digit-cue">···</div>
+            </div>
+            <p class="hint">
+              El servidor elige los dígitos en el momento. Dilos en voz alta uno a uno,
+              cada vez que aparezca uno, y calla entre dígito y dígito.
+            </p>
+            <div class="sensor-actions">
+              <button id="login-challenge" class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <span>Pedir dígitos y grabar</span>
+              </button>
+              <span id="login-challenge-state" class="state">Sin desafío</span>
+            </div>
+            <div class="playback" id="challenge-playback" hidden>
+              <label>Revisa tu grabación antes de entrar</label>
+              <audio id="challenge-audio" controls preload="metadata"></audio>
             </div>
           </div>
         </div>
@@ -196,6 +220,39 @@
           <span>Registrar</span>
         </button>
         <div id="reg-result" class="result"></div>
+
+        <h3>Matrícula de dígitos (opcional)</h3>
+        <p class="hint">
+          Necesaria solo para el método <strong>Voz + dígitos</strong>. El usuario ya
+          debe existir y tener plantilla de voz. Dirás los diez dígitos, del 0 al 9,
+          uno a uno con una pausa entre cada uno. Sin esto el login por voz sigue
+          funcionando igual que siempre, pero acepta una grabación previa.
+        </p>
+        <div class="sensor">
+          <div class="digit-stage">
+            <div id="enroll-cue" class="digit-cue">···</div>
+          </div>
+          <div class="sensor-actions">
+            <button id="enroll-digits" class="btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"></circle>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <span>Grabar los 10 dígitos</span>
+            </button>
+            <span id="enroll-digits-state" class="state">Sin matrícula</span>
+          </div>
+          <div class="playback" id="enroll-playback" hidden>
+            <label>Escucha la toma antes de subirla</label>
+            <audio id="enroll-audio" controls preload="metadata"></audio>
+          </div>
+          <div class="sensor-actions">
+            <button id="enroll-digits-send" class="btn primary" disabled>
+              <span>Subir matrícula</span>
+            </button>
+          </div>
+        </div>
+        <div id="enroll-digits-result" class="result"></div>
       </section>
 
       <section id="tab-gestion" class="panel">
@@ -214,6 +271,7 @@
               <th>Contraseña</th>
               <th>Rostro</th>
               <th>Voz</th>
+              <th>Dígitos</th>
               <th>Acciones</th>
             </tr>
           </thead>
