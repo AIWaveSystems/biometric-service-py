@@ -21,7 +21,7 @@ def main(folder: Path) -> None:
     for path in paths:
         img = detector.load_image(path.read_bytes())
         face = embedder.primary_face(img)
-        sequence.append(None if face is None else (detector.to_gray(img), face))
+        sequence.append(None if face is None else (img, face))
 
     result = liveness.analyze(sequence)
     signals = result["signals"]

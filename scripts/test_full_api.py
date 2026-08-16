@@ -37,11 +37,13 @@ def encode(frame):
     return cv2.imencode(".jpg", tinted)[1].tobytes()
 
 
-def blink_sequence(source, n_open=5, n_closed=3):
-    """Fabrica abierto-cerrado-abierto difuminando la banda ocular por LANDMARKS.
+def blink_sequence(source, n_open=5, n_closed=4):
+    """Fabrica abierto-cerrado-abierto comprimiendo la GEOMETRIA del ojo.
 
-    Deliberadamente NO usa las constantes de liveness.py: si la prueba creara la
-    senal donde el detector la busca, se validaria a si misma.
+    La senal de liveness es el Eye Aspect Ratio, o sea la forma del parpado, asi
+    que desenfocar no cierra nada: hay que deformar de verdad. El remapeo se
+    ancla a los landmarks, no a las constantes de liveness.py, para que la prueba
+    no se valide a si misma.
     """
     from backend.biometrics.face import embedder, liveness
 
@@ -52,15 +54,14 @@ def blink_sequence(source, n_open=5, n_closed=3):
     marks = liveness.landmarks(face)
     d = marks["interocular"]
     h, w = img.shape[:2]
-    mask = np.zeros((h, w), np.float64)
-    cy = marks["eye_center"][1]
-    r0, r1 = max(0, int(cy - 0.5 * d)), min(h, int(cy + 0.5 * d))
-    c0 = max(0, int(min(marks["right_eye"][0], marks["left_eye"][0]) - 0.5 * d))
-    c1 = min(w, int(max(marks["right_eye"][0], marks["left_eye"][0]) + 0.5 * d))
-    mask[r0:r1, c0:c1] = 1.0
-    mask = cv2.GaussianBlur(mask, (0, 0), max(2.0, 0.1 * d))[:, :, None]
-    smooth = cv2.GaussianBlur(img, (0, 0), 9.0).astype(np.float64)
-    closed = (img.astype(np.float64) * (1.0 - mask) + smooth * mask).astype(np.uint8)
+    cy = float(marks["eye_center"][1])
+
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    sigma = 0.80 * d
+    peso = np.exp(-((yy - cy) ** 2) / (2 * sigma ** 2)).astype(np.float32)
+    factor = 1.0 + 1.0 * peso
+    ysrc = (cy + (yy - cy) * factor).astype(np.float32)
+    closed = cv2.remap(img, xx, ysrc, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
 
     frames = [img] * n_open + [closed] * n_closed + [img] * n_open
     return [encode(f) for f in frames]
