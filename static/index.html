@@ -75,7 +75,10 @@
 
         <div class="sensor-grid">
           <div class="sensor" id="login-face-sensor" hidden>
-            <video id="login-video" autoplay playsinline muted></video>
+            <div class="video-wrap">
+              <video id="login-video" autoplay playsinline muted></video>
+              <div id="login-cue" class="cue" hidden></div>
+            </div>
             <canvas id="login-canvas" hidden></canvas>
             <div class="sensor-actions">
               <button id="login-take-photo" class="btn">

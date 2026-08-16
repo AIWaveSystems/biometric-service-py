@@ -8,6 +8,8 @@ const ENROLL_SECONDS = 5.0;
 const VERIFY_SECONDS = 3.0;
 const BURST_SECONDS = 2.6;
 const BURST_FPS = 11;
+const BLINK_CUE_AT = 0.45;
+const BLINK_COUNTDOWN = 3;
 
 function getToken() {
   return sessionStorage.getItem(TOKEN_KEY);
@@ -260,14 +262,21 @@ function capturePhoto(video, canvas) {
   return new Promise((res) => canvas.toBlob((b) => res(b), "image/jpeg", 0.92));
 }
 
-async function captureBurst(video, canvas, seconds, fps) {
+async function captureBurst(video, canvas, seconds, fps, onCue) {
   const frames = [];
   const interval = 1000 / fps;
   const start = performance.now();
   const total = seconds * 1000;
+  const cueAt = total * BLINK_CUE_AT;
+  let cued = false;
   await new Promise((resolve) => {
     const tick = async () => {
-      if (performance.now() - start >= total) return resolve();
+      const elapsed = performance.now() - start;
+      if (elapsed >= total) return resolve();
+      if (!cued && elapsed >= cueAt) {
+        cued = true;
+        if (onCue) onCue();
+      }
       canvas.width = video.videoWidth || 640;
       canvas.height = video.videoHeight || 480;
       canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -278,6 +287,26 @@ async function captureBurst(video, canvas, seconds, fps) {
     tick();
   });
   return frames;
+}
+
+function showCue(text, cls) {
+  const cue = $("login-cue");
+  if (!cue) return;
+  cue.textContent = text;
+  cue.className = "cue" + (cls ? " " + cls : "");
+  cue.hidden = false;
+}
+
+function hideCue() {
+  const cue = $("login-cue");
+  if (cue) cue.hidden = true;
+}
+
+async function countdown(seconds) {
+  for (let n = seconds; n > 0; n--) {
+    showCue(`Mantén los ojos abiertos · ${n}`, "wait");
+    await new Promise((r) => setTimeout(r, 1000));
+  }
 }
 
 let audioCtx = null;
@@ -520,14 +549,24 @@ $("login-take-photo").addEventListener("click", async () => {
   const btn = $("login-take-photo");
   btn.disabled = true;
   setBtnText(btn, "Capturando…");
-  setState($("login-photo-state"), "Grabando, parpadea…", "busy");
+  setState($("login-photo-state"), "Preparando…", "busy");
   try {
-    const frames = await captureBurst($("login-video"), $("login-canvas"), BURST_SECONDS, BURST_FPS);
+    await countdown(BLINK_COUNTDOWN);
+    setState($("login-photo-state"), "Grabando…", "busy");
+    showCue("Grabando · ojos abiertos", "wait");
+    const frames = await captureBurst(
+      $("login-video"),
+      $("login-canvas"),
+      BURST_SECONDS,
+      BURST_FPS,
+      () => showCue("PARPADEA AHORA", "go")
+    );
     window._loginFrames = frames;
     setState($("login-photo-state"), `Capturado (${frames.length} frames)`, "ok");
   } catch {
     setState($("login-photo-state"), "Error de captura", "err");
   }
+  hideCue();
   btn.disabled = false;
   setBtnText(btn, "Capturar (parpadea)");
   closeCamera(video);
