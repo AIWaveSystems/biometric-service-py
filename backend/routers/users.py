@@ -1,3 +1,4 @@
+import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from passlib.context import CryptContext
 from sqlalchemy import select
@@ -123,6 +124,7 @@ def list_users(db: Session = Depends(get_db)):
                 }
                 for t in u.voice_templates
             ],
+            digits=sorted(t.digit for t in u.digit_templates),
         )
         for u in users
     ]
@@ -142,7 +144,132 @@ def get_by_uuid(user_uuid: str, db: Session = Depends(get_db)):
             {"id": t.id, "algorithm": t.algorithm, "duration_seconds": t.duration_seconds}
             for t in user.voice_templates
         ],
+        digits=sorted(t.digit for t in user.digit_templates),
     )
+
+
+def _get_user(db: Session, username: str) -> User:
+    user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return user
+
+
+@router.post("/{username}/faces")
+def add_faces(
+    username: str,
+    image: UploadFile | None = File(default=None),
+    images: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+):
+    """Anade plantillas faciales a un usuario que ya existe.
+
+    A diferencia de /api/face/register, que solo da de alta, este endpoint
+    ACUMULA: mas plantillas por usuario es lo que cubre distintas condiciones de
+    luz y angulo. La redundancia se comprueba tambien contra las plantillas ya
+    guardadas, no solo contra las de esta tanda, para que subir dos veces la
+    misma foto no infle la base sin aportar nada.
+    """
+    user = _get_user(db, username)
+    uploads = ([image] if image is not None else []) + list(images)
+    if not uploads:
+        raise HTTPException(status_code=400, detail="No se envio ninguna imagen")
+
+    accepted = [
+        np.frombuffer(t.features, dtype=np.float32)
+        for t in user.face_templates
+        if t.algorithm == "sface"
+    ]
+    n_existing = len(accepted)
+
+    added = 0
+    n_redundant = 0
+    n_no_face = 0
+    rejected: str | None = None
+    for upload in uploads:
+        img = detector.load_image(upload.file.read())
+        face = embedder.primary_face(img)
+        if face is None:
+            n_no_face += 1
+            continue
+        rect = embedder.face_rect(face, img.shape)
+        problem = quality.check(quality.measure(detector.normalize_face(img, rect), rect))
+        if problem is not None:
+            rejected = problem
+            continue
+        vector = embedder.embed(img, face)
+        if quality.is_redundant(vector, accepted):
+            n_redundant += 1
+            continue
+        accepted.append(vector)
+        db.add(FaceTemplate(user_id=user.id, algorithm="sface", features=vector.tobytes()))
+        added += 1
+
+    if added == 0:
+        db.rollback()
+        detail = rejected or (
+            "Todas las fotos son casi identicas a las que ya tiene el usuario"
+            if n_redundant
+            else "No se detecto ninguna cara en las imagenes"
+        )
+        raise HTTPException(status_code=400, detail=detail)
+
+    db.commit()
+    return {
+        "username": username,
+        "uuid": str(user.uuid),
+        "added": added,
+        "redundant": n_redundant,
+        "without_face": n_no_face,
+        "total_templates": n_existing + added,
+    }
+
+
+@router.post("/{username}/password")
+def set_password(
+    username: str,
+    password: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    """Fija, cambia o retira la contrasena de un usuario.
+
+    Enviar el campo vacio la retira: el usuario queda solo con biometria, que es
+    un estado valido. Retirarla no es lo mismo que dejarla en blanco, porque
+    /api/auth/login rechaza a quien no tiene hash.
+    """
+    user = _get_user(db, username)
+    if password is not None and password != "" and len(password) < 6:
+        raise HTTPException(status_code=400, detail="La contrasena debe tener 6 caracteres o mas")
+
+    user.password_hash = pwd.hash(password) if password else None
+    db.commit()
+    return {"username": username, "uuid": str(user.uuid), "has_password": bool(user.password_hash)}
+
+
+@router.post("/{username}/rename")
+def rename_user(
+    username: str,
+    new_username: str = Form(..., min_length=3, max_length=100),
+    db: Session = Depends(get_db),
+):
+    """Cambia el nombre de usuario conservando el uuid y todas las plantillas.
+
+    El uuid es el identificador que guardan los sistemas clientes precisamente
+    para que renombrar aqui no rompa sus vinculos. Un cliente que haya guardado
+    el nombre en vez del uuid si se rompe.
+    """
+    user = _get_user(db, username)
+    if new_username == username:
+        raise HTTPException(status_code=400, detail="El nombre nuevo es el mismo")
+
+    user.username = new_username
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Ya existe un usuario con ese nombre")
+
+    return {"username": new_username, "previous": username, "uuid": str(user.uuid)}
 
 
 @router.delete("/{username}")
