@@ -61,20 +61,47 @@ check(
 )
 
 print("\n=== El desafio no acepta la respuesta a otro desafio ===")
+from backend.database import SessionLocal
+from backend.models import VoiceChallenge
 from backend.security import ChallengeStore
 
-store = ChallengeStore(ttl_seconds=60)
-token, _ = store.issue("andres", ("3", "7", "1", "9"))
-check("un desafio emitido se consume una vez", store.consume(token, "andres") == ("3", "7", "1", "9"))
-check("el mismo desafio NO vale dos veces", store.consume(token, "andres") is None)
+# Los desafios viven en la base, asi que sobreviven a un reinicio y funcionan con
+# varios workers. La prueba usa un titular propio y borra sus filas al salir.
+TITULAR = "_prueba_desafio_"
+db = SessionLocal()
+try:
+    store = ChallengeStore(ttl_seconds=60)
+    token, _ = store.issue(db, TITULAR, ("3", "7", "1", "9"))
+    check(
+        "un desafio emitido se consume una vez",
+        store.consume(db, token, TITULAR) == ("3", "7", "1", "9"),
+    )
+    check("el mismo desafio NO vale dos veces", store.consume(db, token, TITULAR) is None)
 
-token, _ = store.issue("andres", ("1", "2", "3", "4"))
-check("otro usuario no puede consumir mi desafio", store.consume(token, "otro") is None)
-check("y tras el intento fallido el desafio ya no sirve", store.consume(token, "andres") is None)
+    token, _ = store.issue(db, TITULAR, ("1", "2", "3", "4"))
+    check("otro usuario no puede consumir mi desafio", store.consume(db, token, "otro") is None)
+    check(
+        "y tras el intento fallido el desafio ya no sirve",
+        store.consume(db, token, TITULAR) is None,
+    )
 
-caducado = ChallengeStore(ttl_seconds=0)
-token, _ = caducado.issue("andres", ("1", "2"))
-check("un desafio caducado no se consume", caducado.consume(token, "andres") is None)
+    caducado = ChallengeStore(ttl_seconds=0)
+    token, _ = caducado.issue(db, TITULAR, ("1", "2"))
+    check("un desafio caducado no se consume", caducado.consume(db, token, TITULAR) is None)
+
+    token, _ = store.issue(db, TITULAR, ("5", "6"))
+    otra = SessionLocal()
+    try:
+        check(
+            "se ve desde OTRA conexion (por eso sirve con varios workers)",
+            ChallengeStore(ttl_seconds=60).consume(otra, token, TITULAR) == ("5", "6"),
+        )
+    finally:
+        otra.close()
+finally:
+    db.query(VoiceChallenge).filter(VoiceChallenge.username == TITULAR).delete()
+    db.commit()
+    db.close()
 
 print("\n=== Discriminacion de contenido (misma toma) ===")
 print("  Mide si el GMM por segmento distingue locuciones distintas del MISMO")

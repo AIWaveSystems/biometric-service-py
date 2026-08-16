@@ -87,7 +87,7 @@ def main(root: Path) -> None:
                     llr = pipeline.voice_service.verify_ubm(adapted, ubm, probe)
                     (llr_gen if other == name else llr_imp).append(llr)
 
-    report("LLR contra UBM (VOICE_LLR_THRESHOLD)", llr_gen, llr_imp, 0.4)
+    report("LLR contra UBM (VOICE_LLR_THRESHOLD)", llr_gen, llr_imp, 1.2)
     report("z-score, modo reserva (VOICE_Z_THRESHOLD)", z_gen, z_imp, -2.5)
     print("\nCopia el umbral EER del LLR a VOICE_LLR_THRESHOLD en tu .env.")
     print("Para un portal, subelo por encima del EER: prioriza FAR bajo sobre comodidad.")
