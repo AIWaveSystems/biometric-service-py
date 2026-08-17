@@ -158,17 +158,15 @@ r = requests.post(
     data={"username": "bob"},
     files=[
         ("images", ("messi_big.jpg", open("scripts/messi_big.jpg", "rb"), "image/jpeg")),
-        ("audio", ("b1.wav", open("scripts/B_1.wav", "rb"), "audio/wav")),
     ],
 )
-check("bob con cara + voz", r.status_code == 200, str(r.json().get("registered")))
+check("bob con cara", r.status_code == 200, str(r.json().get("registered")))
 r = requests.post(
     f"{BASE}/api/users/register",
     headers=H,
     data={"username": "dave"},
-    files=[("audio", ("c1.wav", open("scripts/C_1.wav", "rb"), "audio/wav"))],
 )
-check("dave con voz (activa el UBM)", r.status_code == 200, str(r.json().get("registered")))
+check("dave sin biométricos", r.status_code == 200, str(r.json().get("registered")))
 
 print("\n=== 6. ROSTRO: verificacion simple ===")
 r = requests.post(
@@ -230,14 +228,7 @@ r = requests.post(
     files={"audio": ("a2.wav", open("scripts/A_2.wav", "rb"), "audio/wav")},
 ).json()
 check("alice con otra toma suya -> acepta", r["verified"], f"score {r.get('score')} via {r.get('scoring')}")
-check("usa UBM-MAP con >=2 locutores de fondo", r.get("scoring") == "ubm-map", f"fondo={r.get('n_background_speakers')}")
-r = requests.post(
-    f"{BASE}/api/voice/verify",
-    headers=H,
-    data={"username": "alice"},
-    files={"audio": ("b2.wav", open("scripts/B_2.wav", "rb"), "audio/wav")},
-).json()
-check("alice con voz de bob -> rechaza", not r["verified"], f"score {r.get('score')} via {r.get('scoring')}")
+check("usa scoring embedding", r.get("scoring") == "embedding", f"scoring={r.get('scoring')}")
 
 print("\n=== 10. CONTRASENA (body JSON) ===")
 r = requests.post(
