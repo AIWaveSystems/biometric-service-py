@@ -61,7 +61,9 @@ check(
 )
 
 print("\n=== El desafio no acepta la respuesta a otro desafio ===")
-from backend.database import SessionLocal
+from backend.database import engine, Base, SessionLocal
+
+Base.metadata.create_all(engine)
 from backend.models import VoiceChallenge
 from backend.security import ChallengeStore
 
