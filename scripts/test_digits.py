@@ -61,11 +61,11 @@ check(
 )
 
 print("\n=== El desafio no acepta la respuesta a otro desafio ===")
-from backend.database import engine, Base, SessionLocal
-
-Base.metadata.create_all(engine)
+from backend.database import Base, SessionLocal, engine
 from backend.models import VoiceChallenge
 from backend.security import ChallengeStore
+
+Base.metadata.create_all(engine)
 
 # Los desafios viven en la base, asi que sobreviven a un reinicio y funcionan con
 # varios workers. La prueba usa un titular propio y borra sus filas al salir.
