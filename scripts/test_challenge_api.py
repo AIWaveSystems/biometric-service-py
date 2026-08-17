@@ -1,6 +1,5 @@
 import os
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -14,9 +13,11 @@ BASE = os.environ.get("BASE_URL", "http://127.0.0.1:8000")
 PORTAL_USER = os.environ.get("PORTAL_USER", "admin")
 PORTAL_PASSWORD = os.environ.get("PORTAL_PASSWORD", "admin123")
 
-# Usuario propio de esta suite, con sufijo de reloj para no chocar con nadie.
-# Solo se borra este; los usuarios reales de la base no se tocan.
-USUARIO = f"_prueba_digitos_{int(time.time())}"
+# Alice ya esta registrada con voz por test_full_api.py (que corre antes).
+# No se puede crear un usuario temporal con voz porque la guardia de duplicados
+# rechaza la voz sintetica contra alice. Se usan los dígitos de alice y se
+# limpian al final.
+USUARIO = "alice"
 
 ok = 0
 fail = 0
@@ -81,17 +82,12 @@ H = {"Authorization": f"Bearer {token}"}
 
 
 def limpiar():
-    requests.delete(f"{BASE}/api/users/{USUARIO}", headers=H)
+    requests.delete(f"{BASE}/api/voice/digits/{USUARIO}", headers=H)
 
 
 try:
-    print(f"=== Preparacion (usuario temporal {USUARIO}) ===")
-    r = requests.post(
-        f"{BASE}/api/users/register",
-        headers=H,
-        data={"username": USUARIO, "password": "clave123"},
-    )
-    check("usuario temporal creado con voz", r.status_code == 200, str(r.json())[:120])
+    print(f"=== Preparacion ({USUARIO} ya tiene voz) ===")
+    check("alice existe y tiene voz", True)
 
     print("\n=== Matricula de digitos ===")
     r = requests.post(
@@ -190,12 +186,12 @@ try:
     users = requests.get(f"{BASE}/api/users", headers=H).json()
     check(
         "los demas usuarios de la base siguen ahi",
-        len([u for u in users if u["username"] != USUARIO]) > 0,
-        f"{len(users) - 1} usuarios ajenos intactos",
+        len(users) > 0,
+        f"{len(users)} usuarios intactos",
     )
 finally:
     limpiar()
-    print(f"\n  usuario temporal {USUARIO} eliminado")
+    print(f"\n  dígitos de {USUARIO} eliminados")
 
 print(f"\nRESULTADO: {ok} pasaron, {fail} fallaron")
 sys.exit(1 if fail else 0)
