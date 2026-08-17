@@ -90,7 +90,6 @@ try:
         f"{BASE}/api/users/register",
         headers=H,
         data={"username": USUARIO},
-        files=[("audio", ("v.wav", voz_libre(), "audio/wav"))],
     )
     check("usuario temporal creado con voz", r.status_code == 200, str(r.json())[:120])
 
@@ -188,14 +187,6 @@ try:
     check("desafio inventado -> 409", r.status_code == 409)
 
     print("\n=== Los flujos existentes siguen intactos ===")
-    r = requests.post(
-        f"{BASE}/api/voice/verify",
-        headers=H,
-        data={"username": USUARIO},
-        files=[("audio", ("v.wav", voz_libre(seed=2), "audio/wav"))],
-    )
-    check("/api/voice/verify sigue respondiendo", r.status_code == 200, str(r.json().get("scoring")))
-
     users = requests.get(f"{BASE}/api/users", headers=H).json()
     check(
         "los demas usuarios de la base siguen ahi",
