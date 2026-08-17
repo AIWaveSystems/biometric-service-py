@@ -164,7 +164,7 @@ check("bob con cara", r.status_code == 200, str(r.json().get("registered")))
 r = requests.post(
     f"{BASE}/api/users/register",
     headers=H,
-    data={"username": "dave"},
+    data={"username": "dave", "password": "clave123"},
 )
 check("dave sin biométricos", r.status_code == 200, str(r.json().get("registered")))
 
