@@ -1,0 +1,107 @@
+Login Biometrico Service
+Copyright (c) 2026 Ilesandres
+
+Este producto incluye software desarrollado por Ilesandres.
+This product includes software developed by Ilesandres.
+
+Licenciado bajo la Licencia MIT. Ver el archivo LICENSE.
+Licensed under the MIT License. See the LICENSE file.
+
+===============================================================================
+COMPONENTES DE TERCEROS / THIRD-PARTY COMPONENTS
+===============================================================================
+
+Este proyecto NO redistribuye los modelos ONNX: se descargan en tiempo de
+instalacion con `python scripts/fetch_models.py` y quedan fuera del control de
+versiones. Si construyes una imagen de contenedor que los incluya, SI los estas
+redistribuyendo y debes cumplir las condiciones de abajo.
+
+This project does NOT redistribute the ONNX models: they are downloaded at
+install time with `python scripts/fetch_models.py` and are excluded from version
+control. If you build a container image that bundles them, you ARE
+redistributing them and must comply with the terms below.
+
+-------------------------------------------------------------------------------
+MODELOS DE RECONOCIMIENTO FACIAL / FACE RECOGNITION MODELS
+-------------------------------------------------------------------------------
+
+YuNet (face_detection_yunet_2023mar.onnx)
+    Deteccion de rostro / Face detection
+    Fuente: https://github.com/opencv/opencv_zoo
+    Autor: Shiqi Yu, Yuantao Feng
+    Licencia: MIT
+
+SFace (face_recognition_sface_2021dec.onnx)
+    Embedding de identidad facial / Face identity embedding
+    Fuente: https://github.com/opencv/opencv_zoo
+    Autor: Zhong Yaoyao
+    Licencia: Apache License 2.0
+
+OpenSeeFace lm_model3_opt (face_landmarks_osf.onnx)
+    Landmarks faciales para deteccion de parpadeo
+    Facial landmarks for blink detection
+    Fuente: https://github.com/emilianavt/OpenSeeFace
+    Autor: emilianavt
+    Licencia: BSD 2-Clause
+
+-------------------------------------------------------------------------------
+MODELO DE RECONOCIMIENTO DE LOCUTOR / SPEAKER RECOGNITION MODEL
+-------------------------------------------------------------------------------
+
+WeSpeaker VoxCeleb ResNet34-LM (speaker_resnet34.onnx)
+    Embedding de locutor / Speaker embedding
+    Fuente: https://huggingface.co/hbredin/wespeaker-voxceleb-resnet34-LM
+    Proyecto original: https://github.com/wenet-e2e/wespeaker
+    Licencia: Apache License 2.0
+
+    Entrenado sobre el conjunto VoxCeleb. VoxCeleb se distribuye bajo
+    CC BY 4.0 y su uso esta sujeto a los terminos de sus autores
+    (Universidad de Oxford, VGG).
+
+    Trained on the VoxCeleb dataset. VoxCeleb is distributed under CC BY 4.0
+    and its use is subject to its authors' terms (University of Oxford, VGG).
+
+-------------------------------------------------------------------------------
+BIBLIOTECAS PRINCIPALES / MAIN LIBRARIES
+-------------------------------------------------------------------------------
+
+FastAPI              MIT              https://github.com/fastapi/fastapi
+Starlette            BSD 3-Clause     https://github.com/encode/starlette
+Uvicorn              BSD 3-Clause     https://github.com/encode/uvicorn
+SQLAlchemy           MIT              https://github.com/sqlalchemy/sqlalchemy
+psycopg2             LGPL 3.0         https://github.com/psycopg/psycopg2
+NumPy                BSD 3-Clause     https://github.com/numpy/numpy
+OpenCV (opencv-python)  Apache 2.0    https://github.com/opencv/opencv-python
+ONNX Runtime         MIT              https://github.com/microsoft/onnxruntime
+Pydantic             MIT              https://github.com/pydantic/pydantic
+PyJWT                MIT              https://github.com/jpadilla/pyjwt
+passlib              BSD 2-Clause     https://foss.heptapod.net/python-libs/passlib
+bcrypt               Apache 2.0       https://github.com/pyca/bcrypt
+python-multipart     Apache 2.0       https://github.com/Kludex/python-multipart
+
+Nota sobre psycopg2: se distribuye bajo LGPL 3.0. Enlazar contra ella desde
+software propietario esta permitido, pero si la MODIFICAS y redistribuyes debes
+publicar esos cambios bajo LGPL. El uso normal como dependencia no impone
+obligaciones sobre tu codigo.
+
+Note on psycopg2: distributed under LGPL 3.0. Linking against it from
+proprietary software is permitted, but if you MODIFY and redistribute it you
+must release those changes under LGPL. Ordinary use as a dependency imposes no
+obligations on your own code.
+
+===============================================================================
+DATOS BIOMETRICOS / BIOMETRIC DATA
+===============================================================================
+
+Este repositorio NO contiene datos biometricos de personas reales. Los
+directorios datos_cara/, datos_voz/, datos_liveness/, datos_replay/,
+datos_digitos/, datos_otros/ y frames_liveness/ estan en .gitignore.
+
+Los archivos de audio sinteticos en scripts/ (A_*.wav, B_*.wav, C_*.wav) fueron
+generados por scripts/synth.py y no corresponden a ninguna persona real.
+Las imagenes de prueba en scripts/ son imagenes publicas de uso comun en
+investigacion de vision por computador.
+
+This repository contains NO biometric data from real people. The directories
+listed above are gitignored. Synthetic audio files in scripts/ were generated
+by scripts/synth.py and correspond to no real person.

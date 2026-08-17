@@ -35,6 +35,6 @@ def login(body: PasswordLogin, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Credenciales invalidas")
 
     return TokenResponse(
-        access_token=create_session_token(user.username, "password"),
+        access_token=create_session_token(user.username, "password", str(user.uuid)),
         expires_in=settings.session_expire_minutes * 60,
     )

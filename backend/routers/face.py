@@ -1,11 +1,11 @@
 import numpy as np
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..biometrics.face import detector, liveness
-from ..biometrics.face.lbph import extract_lbph
-from ..biometrics.face.matcher import lbph_similarity
+from ..biometric_guard import check_biometric_rate
+from ..biometrics.face import detector, embedder, liveness, quality
 from ..config import settings
 from ..database import get_db
 from ..models import FaceTemplate, User
@@ -19,22 +19,33 @@ from ..security import create_session_token, replay_guard
 
 router = APIRouter(prefix="/api/face", tags=["face"])
 
+ALGORITHM = "sface"
 
-def _features_from_bytes(data: bytes) -> np.ndarray:
-    face = detector.detect_face(detector.load_image(data))
+
+def _embedding_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarray:
+    img = detector.load_image(data)
+    face = embedder.primary_face(img)
     if face is None:
         raise HTTPException(status_code=400, detail="No se detecto ninguna cara en la imagen")
-    return extract_lbph(face)
+    rect = embedder.face_rect(face, img.shape)
+    if enforce_quality:
+        normalized = detector.normalize_face(img, rect)
+        problem = quality.check(quality.measure(normalized, rect))
+        if problem is not None:
+            raise HTTPException(status_code=400, detail=problem)
+    return embedder.embed(img, face)
 
 
 def _best_similarity(features: np.ndarray, templates: list[FaceTemplate]) -> float:
-    best = 0.0
+    best = -1.0
     for tpl in templates:
+        if tpl.algorithm != ALGORITHM:
+            continue
         ref = np.frombuffer(tpl.features, dtype=np.float32)
         if ref.shape != features.shape:
             continue
-        best = max(best, lbph_similarity(features, ref))
-    return best
+        best = max(best, embedder.similarity(features, ref))
+    return max(best, 0.0)
 
 
 def _get_user(db: Session, username: str) -> User:
@@ -45,9 +56,12 @@ def _get_user(db: Session, username: str) -> User:
 
 
 def _templates_or_404(user: User) -> list[FaceTemplate]:
-    templates = list(user.face_templates)
+    templates = [t for t in user.face_templates if t.algorithm == ALGORITHM]
     if not templates:
-        raise HTTPException(status_code=404, detail="El usuario no tiene plantilla facial")
+        raise HTTPException(
+            status_code=404,
+            detail="El usuario no tiene plantilla facial vigente. Vuelve a registrar la cara.",
+        )
     return templates
 
 
@@ -62,7 +76,7 @@ def register(
     if existing is not None:
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
-    features = _features_from_bytes(image.file.read())
+    features = _embedding_from_bytes(image.file.read())
 
     if password:
         from passlib.context import CryptContext
@@ -75,13 +89,19 @@ def register(
         user = User(username=username)
 
     db.add(user)
-    db.flush()
-    db.add(FaceTemplate(user_id=user.id, algorithm="lbph", features=features.tobytes()))
-    db.commit()
+    try:
+        db.flush()
+        db.add(FaceTemplate(user_id=user.id, algorithm=ALGORITHM, features=features.tobytes()))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="El usuario ya existe")
 
+    db.refresh(user)
     return FaceRegisterResponse(
         username=username,
-        algorithm="lbph",
+        uuid=str(user.uuid),
+        algorithm=ALGORITHM,
         message="Cara registrada correctamente",
     )
 
@@ -94,13 +114,14 @@ def verify(
 ):
     user = _get_user(db, username)
     templates = _templates_or_404(user)
-    features = _features_from_bytes(image.file.read())
+    features = _embedding_from_bytes(image.file.read())
     best = _best_similarity(features, templates)
     verified = best >= settings.face_threshold
 
     return FaceVerifyResponse(
         verified=verified,
         username=username if verified else None,
+        uuid=str(user.uuid) if verified else None,
         similarity=round(best, 4),
         threshold=settings.face_threshold,
     )
@@ -108,39 +129,51 @@ def verify(
 
 @router.post("/login", response_model=FaceLoginResponse)
 def login(
+    request: Request,
     username: str = Form(...),
     frames: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ):
+    check_biometric_rate(request, "face", username)
     user = _get_user(db, username)
     templates = _templates_or_404(user)
     if not frames:
         raise HTTPException(status_code=400, detail="Se requiere al menos un frame")
-
-    payloads = [f.file.read() for f in frames]
-    if not replay_guard.check_and_register(f"face:{username}", payloads):
+    if len(frames) < settings.liveness_min_faces:
         raise HTTPException(
-            status_code=409,
-            detail="Captura repetida detectada. Vuelve a grabar el parpadeo.",
+            status_code=400,
+            detail=(
+                f"La captura envio muy pocos frames ({len(frames)}). "
+                f"Se necesitan al menos {settings.liveness_min_faces}. Repite la captura."
+            ),
         )
 
-    crops: list[np.ndarray | None] = []
+    payloads = [f.file.read() for f in frames]
+
+    sequence: list[tuple[np.ndarray, np.ndarray] | None] = []
     feature_list: list[np.ndarray] = []
+    quality_problem: str | None = None
     for data in payloads:
         try:
-            gray = detector.to_gray(detector.load_image(data))
+            img = detector.load_image(data)
         except ValueError:
+            sequence.append(None)
             continue
-        rect = detector.find_face_rect(gray)
-        if rect is None:
-            crops.append(None)
+        face = embedder.primary_face(img)
+        if face is None:
+            sequence.append(None)
             continue
-        x, y, w, h = rect
-        crops.append(gray[y : y + h, x : x + w])
-        feature_list.append(extract_lbph(detector.normalize_face(gray, rect)))
+        sequence.append((img, face))
+        rect = embedder.face_rect(face, img.shape)
+        normalized = detector.normalize_face(img, rect)
+        problem = quality.check(quality.measure(normalized, rect))
+        if problem is not None:
+            quality_problem = problem
+            continue
+        feature_list.append(embedder.embed(img, face))
 
     result = liveness.analyze(
-        crops,
+        sequence,
         min_faces=settings.liveness_min_faces,
         max_gap_ratio=settings.liveness_max_gap_ratio,
     )
@@ -149,6 +182,16 @@ def login(
         raise HTTPException(
             status_code=400,
             detail="No se detecto la cara en suficientes frames. Asegurate de mirar a la camara.",
+        )
+    if not feature_list:
+        raise HTTPException(
+            status_code=400,
+            detail=quality_problem or "Ningun frame tiene calidad suficiente para verificar.",
+        )
+    if not replay_guard.check_and_register(f"face:{username}", payloads):
+        raise HTTPException(
+            status_code=409,
+            detail="Captura repetida detectada. Vuelve a grabar el parpadeo.",
         )
 
     best = max((_best_similarity(f, templates) for f in feature_list), default=0.0)
@@ -159,22 +202,33 @@ def login(
     reason = None
     if not verified:
         if not result["stable"]:
-            reason = "La cara se pierde en demasiados frames; manten la cabeza estable."
+            reason = (
+                f"Solo se te detecto en {result['n_faces']} de {result['n_frames']} frames. "
+                "Mira de frente a la camara sin girar la cabeza durante la captura."
+            )
+        elif result["n_usable"] < settings.liveness_min_faces:
+            reason = (
+                "Hubo demasiado movimiento durante la captura. "
+                "Quedate quieto y parpadea cuando el portal te lo indique."
+            )
         elif not blink:
-            reason = "No se detecto parpadeo. Parpadea una vez durante la captura."
+            reason = "No se detecto parpadeo. Parpadea cuando el portal te lo indique."
         else:
             reason = "El rostro no coincide con las plantillas registradas."
 
     return FaceLoginResponse(
         verified=verified,
         username=username if verified else None,
+        uuid=str(user.uuid) if verified else None,
         liveness_passed=blink,
         similarity=round(best, 4),
         threshold=settings.face_threshold,
         n_frames=result["n_frames"],
         n_faces=result["n_faces"],
+        n_usable=result["n_usable"],
+        n_moved=result["n_moved"],
         blink_detected=blink,
-        access_token=create_session_token(username, "face") if verified else None,
+        access_token=create_session_token(username, "face", str(user.uuid)) if verified else None,
         expires_in=settings.session_expire_minutes * 60 if verified else None,
         reason=reason,
     )
@@ -182,28 +236,29 @@ def login(
 
 @router.post("/identify", response_model=FaceIdentifyResponse)
 def identify(image: UploadFile = File(...), db: Session = Depends(get_db)):
-    features = _features_from_bytes(image.file.read())
+    features = _embedding_from_bytes(image.file.read())
 
     rows = db.execute(
-        select(User.username, FaceTemplate.features).join(
-            FaceTemplate, FaceTemplate.user_id == User.id
-        )
+        select(User.username, User.uuid, FaceTemplate.features)
+        .join(FaceTemplate, FaceTemplate.user_id == User.id)
+        .where(FaceTemplate.algorithm == ALGORITHM)
     ).all()
     if not rows:
         raise HTTPException(status_code=404, detail="No hay usuarios registrados")
 
-    best_user, best_sim = None, 0.0
+    best_user, best_uuid, best_sim = None, None, 0.0
     for row in rows:
         ref = np.frombuffer(row.features, dtype=np.float32)
         if ref.shape != features.shape:
             continue
-        sim = lbph_similarity(features, ref)
+        sim = embedder.similarity(features, ref)
         if sim > best_sim:
-            best_sim, best_user = sim, row.username
+            best_sim, best_user, best_uuid = sim, row.username, row.uuid
 
     verified = best_sim >= settings.face_threshold
     return FaceIdentifyResponse(
         username=best_user if verified else None,
+        uuid=str(best_uuid) if verified and best_uuid else None,
         similarity=round(best_sim, 4),
         threshold=settings.face_threshold,
     )
