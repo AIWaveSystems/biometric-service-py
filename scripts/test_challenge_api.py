@@ -89,7 +89,7 @@ try:
     r = requests.post(
         f"{BASE}/api/users/register",
         headers=H,
-        data={"username": USUARIO},
+        data={"username": USUARIO, "password": "clave123"},
     )
     check("usuario temporal creado con voz", r.status_code == 200, str(r.json())[:120])
 
