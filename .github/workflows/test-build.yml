@@ -38,6 +38,26 @@ jobs:
   tests-offline:
     name: Pruebas sin servidor
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: biometrico
+          POSTGRES_PASSWORD: biometrico
+          POSTGRES_DB: auth_biometric
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg2://biometrico:biometrico@localhost:5432/auth_biometric
+      VOICE_REJECT_DUPLICATES: 'true'
+
     steps:
       - uses: actions/checkout@v4
 
@@ -108,6 +128,7 @@ jobs:
       PORTAL_PASSWORD: admin123
       BASE_URL: http://127.0.0.1:8000
       VOICE_REJECT_DUPLICATES: 'true'
+      ALLOW_DESTRUCTIVE: 'yes'
 
     steps:
       - uses: actions/checkout@v4
