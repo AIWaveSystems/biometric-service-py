@@ -8,6 +8,12 @@ systems can validate.
 It is designed as a central identity component: a single service that several frontends
 and several backends connect to through **scoped API keys**.
 
+!!! warning "Status: in development, unofficial pre-release 1.0.0"
+    No git release or tag yet; code reaches `main` only once it is stable and functional.
+    **Voice** is the most refined module. **Face** is still calibrating its threshold:
+    expect false accepts/rejects until it is measured against your own population.
+    See [Advertencias de desarrollo](operacion/advertencias.md) (Spanish).
+
 ---
 
 ## What it solves

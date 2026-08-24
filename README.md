@@ -16,11 +16,14 @@ localmente, sin llamadas externas.
 > clasifica como dato sensible. Requieren autorización previa, explícita e
 > informada del titular. Ver [Limitaciones conocidas](#limitaciones-conocidas).
 
-> ⚠️ **Proyecto en desarrollo, aún no liberado.** El login por voz y el facial
-> exigen validación y ajuste de umbrales —y en ocasiones de código— según las
-> necesidades de cada sistema integrador, y como todo sistema biométrico tiene
-> fallas lógicas inherentes (falsos positivos/negativos, ataques de
-> presentación, degradación silenciosa). Lee las
+> ⚠️ **Proyecto en desarrollo — pre-release 1.0.0 no oficial.** Aún no hay release
+> ni tag en git; el código solo pasará a `main` cuando exista una versión estable
+> y funcional. El módulo de **voz es el más refinado** (matrícula guiada, desafío
+> de dígitos, detección de duplicados y umbrales medidos con datos reales). El
+> **rostro sigue en calibración**: su umbral de decisión aún produce fallas de
+> falsa aceptación/rechazo según la población, y está pendiente de medición con
+> una base real (`scripts/calibrate_face_db.py`). Como todo sistema biométrico,
+> tiene fallas inherentes: lee las
 > [Advertencias de desarrollo](docs/operacion/advertencias.md) antes de usarlo.
 
 ---
