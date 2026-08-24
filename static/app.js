@@ -85,6 +85,8 @@ function showGate() {
 function enterApp() {
   $("gate").hidden = true;
   $("app").hidden = false;
+  const name = hashTab();
+  if (name) applyTab(name);
 }
 
 function toast(msg) {
@@ -214,7 +216,14 @@ $("logout-btn").addEventListener("click", () => {
   showGate();
 });
 
-function activateTab(name) {
+const TABS = ["login", "registro", "gestion", "clientes", "operadores"];
+
+function hashTab() {
+  const name = decodeURIComponent(location.hash.replace(/^#/, ""));
+  return TABS.includes(name) ? name : null;
+}
+
+function applyTab(name) {
   document.querySelectorAll(".tab").forEach((t) => {
     t.classList.toggle("active", t.dataset.tab === name);
   });
@@ -229,8 +238,19 @@ function activateTab(name) {
   if (name === "operadores") loadOperators();
 }
 
+function activateTab(name) {
+  applyTab(name);
+  if (hashTab() !== name) location.hash = encodeURIComponent(name);
+}
+
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => activateTab(tab.dataset.tab));
+});
+
+window.addEventListener("hashchange", () => {
+  const name = hashTab();
+  const visible = document.querySelector(".panel.active");
+  if (name && (!visible || visible.id !== "tab-" + name)) applyTab(name);
 });
 
 let camStreams = {};
