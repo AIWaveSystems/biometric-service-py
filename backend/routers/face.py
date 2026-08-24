@@ -31,7 +31,9 @@ def _embedding_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarr
     rect = embedder.face_rect(face, img.shape)
     if enforce_quality:
         normalized = detector.normalize_face(img, rect)
-        problem = quality.check(quality.measure(normalized, rect))
+        problem = quality.check(
+            quality.measure(normalized, rect, detector.raw_face(img, rect))
+        )
         if problem is not None:
             raise HTTPException(status_code=400, detail=problem)
     return embedder.embed(img, face)
