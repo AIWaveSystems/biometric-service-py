@@ -291,7 +291,7 @@ def classify(status: int, detail: str) -> str:
 | --- | --- |
 | Timeout | 30 s for face login (several images), 15 s for voice |
 | Connections | Reuse a single HTTP client: `httpx.Client` or a keep-alive agent |
-| Burst size | 20 to 30 JPEG frames at quality 0.9. More does not improve accuracy |
+| Burst size | 30 to 40 JPEG frames at quality 0.9, a ~3 s window with the blink prompt visible before and during the capture. More frames do not improve identity |
 | Network | Keep the service on an internal network, not exposed to the internet |
 | Logging | **Do not** store images or audio. Log `uuid`, `verified`, `similarity` and `scoring` |
 | Monitoring | Poll `GET /health`, and `GET /api/voice/system` after each deployment |

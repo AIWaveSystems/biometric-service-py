@@ -291,7 +291,7 @@ def clasificar(status: int, detalle: str) -> str:
 | --- | --- |
 | Tiempo de espera | 30 s para login facial (varias imagenes), 15 s para voz |
 | Conexiones | Reutiliza un unico cliente HTTP: `httpx.Client` o un agente con keep-alive |
-| Tamano de rafaga | 20 a 30 frames JPEG de calidad 0.9. Mas no mejora la precision |
+| Tamano de rafaga | 30 a 40 frames JPEG de calidad 0.9, ventana de ~3 s con el aviso de parpadeo visible antes y durante la captura. Mas frames no mejora la identidad |
 | Red | El servicio en red interna, no expuesto a internet |
 | Registros | **No** guardes las imagenes ni el audio. Registra `uuid`, `verified`, `similarity` y `scoring` |
 | Vigilancia | Sondea `GET /health`, y `GET /api/voice/system` tras cada despliegue |

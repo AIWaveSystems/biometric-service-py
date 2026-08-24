@@ -30,7 +30,7 @@ flowchart LR
 El login facial necesita ver un parpadeo. Hay que grabar una secuencia, no una foto.
 
 ```javascript
-async function capturarRafaga(video, nFrames = 28, intervaloMs = 90) {
+async function capturarRafaga(video, nFrames = 34, intervaloMs = 90) {
   const canvas = document.createElement('canvas');
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
@@ -49,7 +49,10 @@ async function capturarRafaga(video, nFrames = 28, intervaloMs = 90) {
 }
 ```
 
-28 frames cada 90 ms son unos 2.6 segundos, tiempo de sobra para un parpadeo natural.
+34 frames cada 90 ms son unos 3 segundos: una ventana amplia para que quepa un
+parpadeo natural aunque la persona tarde en reaccionar al aviso. Mas frames no
+mejoran la precision de identidad (los duplicados se colapsan en el servidor),
+solo dan margen al parpadeo.
 
 ### Pedir la camara
 
@@ -68,12 +71,13 @@ await video.play();
 ### Avisar del parpadeo
 
 Sin instruccion visible, la mayoria de la gente no parpadea durante la captura y el login
-falla por `blink_detected: false`.
+falla por `blink_detected: false`. El aviso debe existir **antes** de empezar a capturar:
+la gente tarda en reaccionar, y un cartel que aparece a mitad de rafaga llega tarde.
 
 ```javascript
 async function loginFacial(video, username, cartel) {
-  cartel.textContent = 'Mira a la camara...';
-  await new Promise((r) => setTimeout(r, 600));
+  cartel.textContent = 'Mira a la camara y PARPADEA cuando veas el aviso';
+  await new Promise((r) => setTimeout(r, 800));
 
   const captura = capturarRafaga(video);
 
@@ -95,9 +99,10 @@ async function loginFacial(video, username, cartel) {
 }
 ```
 
-!!! tip "El aviso a mitad de captura"
-    Lanzar el cartel a los 900 ms deja frames de ojos abiertos antes y despues del
-    parpadeo, que es justo lo que el detector de EAR necesita para medir la transicion.
+!!! tip "Aviso antes y durante la captura"
+    La instruccion previa prepara a la persona; el cartel a los 900 ms dispara el
+    parpadeo dejando frames de ojos abiertos antes y despues, que es justo lo que el
+    detector de EAR necesita para medir la transicion.
 
 ---
 
