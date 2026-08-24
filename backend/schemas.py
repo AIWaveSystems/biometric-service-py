@@ -67,7 +67,6 @@ class VoiceRegisterResponse(BaseModel):
     duration_seconds: float
     n_frames: int
     message: str
-    duplicate_of: str | None = None
     duplicate_similarity: float | None = None
 
 

@@ -158,7 +158,7 @@ def register(
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Esta voz ya esta matriculada como '{duplicado[0]}' "
+                "Esta voz ya esta matriculada en otra cuenta "
                 f"(similitud {duplicado[1]:.3f}, umbral {settings.voice_duplicate_threshold}). "
                 "Matricular la misma voz en dos cuentas hace que una sola grabacion abra "
                 "las dos. Si de verdad son personas distintas, sube el audio correcto o "
@@ -174,7 +174,7 @@ def register(
     mensaje = "Voz registrada correctamente"
     if duplicado is not None:
         mensaje = (
-            f"Voz registrada, PERO se parece a la de '{duplicado[0]}' "
+            "Voz registrada, PERO se parece a la de otra cuenta existente "
             f"(similitud {duplicado[1]:.3f}). Una sola grabacion podria abrir ambas cuentas."
         )
 
@@ -186,7 +186,6 @@ def register(
         duration_seconds=round(duration, 2),
         n_frames=n_frames,
         message=mensaje,
-        duplicate_of=None if duplicado is None else duplicado[0],
         duplicate_similarity=None if duplicado is None else round(duplicado[1], 4),
     )
 

@@ -134,12 +134,12 @@ def register(
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"Esa voz ya esta matriculada como '{duplicado[0]}' "
+                    "Esa voz ya esta matriculada en otra cuenta "
                     f"(similitud {duplicado[1]:.3f}). El usuario no se ha creado."
                 ),
             )
         if duplicado is not None:
-            registered.append(f"AVISO: la voz se parece a la de '{duplicado[0]}'")
+            registered.append("AVISO: la voz se parece a la de otra cuenta existente")
         db.add(template)
         voice_result = VoiceRegisterResponse(
             username=username,
