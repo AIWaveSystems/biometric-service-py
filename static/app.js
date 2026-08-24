@@ -1059,6 +1059,9 @@ function buildEditor(u, refrescar) {
   const inNombre = document.createElement("input");
   inNombre.type = "text";
   inNombre.value = u.username;
+  inNombre.placeholder = "Nuevo nombre de usuario";
+  inNombre.autocomplete = "off";
+  inNombre.setAttribute("aria-label", "Renombrar usuario");
   fIdent.appendChild(inNombre);
   fIdent.appendChild(
     boton("Renombrar", "", async () => {
@@ -1081,6 +1084,8 @@ function buildEditor(u, refrescar) {
   const inClave = document.createElement("input");
   inClave.type = "password";
   inClave.placeholder = "Nueva contraseña (mín. 6)";
+  inClave.autocomplete = "new-password";
+  inClave.setAttribute("aria-label", "Nueva contraseña del usuario");
   fClave.appendChild(inClave);
   fClave.appendChild(
     boton("Guardar", "primary", async () => {
@@ -1134,6 +1139,8 @@ function buildEditor(u, refrescar) {
   inFotos.type = "file";
   inFotos.accept = "image/*";
   inFotos.multiple = true;
+  inFotos.setAttribute("aria-label", "Elegir fotos de rostro");
+  inFotos.title = "Elige una o varias fotos de rostro";
   fRostro.appendChild(inFotos);
   fRostro.appendChild(
     boton("Subir fotos", "primary", async () => {
@@ -1210,6 +1217,8 @@ function buildEditor(u, refrescar) {
   const inAudio = document.createElement("input");
   inAudio.type = "file";
   inAudio.accept = "audio/wav";
+  inAudio.setAttribute("aria-label", "Elegir archivo WAV de voz");
+  inAudio.title = "Elige un archivo WAV con la voz del usuario";
   fVoz.appendChild(inAudio);
   fVoz.appendChild(
     boton("Subir voz", "primary", async () => {

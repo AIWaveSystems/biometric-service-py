@@ -485,9 +485,22 @@ tr.editor-fila > td { padding: 0; background: rgba(15, 23, 42, 0.45); }
 .editor-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 
 .editor-row input[type="text"],
+.editor-row input[type="password"],
+.editor-row input[type="file"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: 14px;
+}
+
+.editor-row input[type="text"],
 .editor-row input[type="password"] { flex: 1 1 200px; min-width: 160px; }
 
 .editor-row input[type="file"] { flex: 1 1 240px; font-size: 13px; color: var(--muted); }
+
+.editor-row input:focus { outline: 1px solid var(--accent); }
 
 .editor-cam { margin-top: 10px; max-width: 320px; }
 .editor-cam video { width: 100%; border-radius: 10px; display: block; }
