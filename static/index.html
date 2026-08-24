@@ -286,6 +286,10 @@
 
         <div class="toolbar list-controls" data-list="users">
           <input type="search" id="users-search" placeholder="Buscar usuario" />
+          <select id="users-owner" aria-label="Filtrar por sistema">
+            <option value="">Todos los sistemas</option>
+            <option value="portal">Portal / sin sistema</option>
+          </select>
           <select id="users-sort">
             <option value="username">Nombre</option>
             <option value="created_at">Fecha de alta</option>

@@ -251,6 +251,7 @@ function applyTab(name) {
   if (name === "gestion") {
     loadUsers();
     loadVoiceSystemBanner();
+    loadOwnerOptions();
   }
   if (name === "clientes") loadClients();
   if (name === "operadores") loadOperators();
@@ -750,8 +751,18 @@ $("login-challenge").addEventListener("click", async () => {
   clearPlayback("challenge");
   setState(state, "Pidiendo desafío…", "busy");
   try {
+    const found = await resolveLoginAccounts(username);
+    if (found.missing) {
+      setState(state, "Sin desafío", "");
+      return showResult($("login-result"), "err", `El usuario ${username} no existe en ningún sistema`);
+    }
+    if (found.matches) {
+      setState(state, "Sin desafío", "");
+      return offerAccountChooser($("login-result"), username, found.matches, "login-challenge");
+    }
     const fd = new FormData();
     fd.append("username", username);
+    loginTargetAppend(fd, found.uuid);
     const ch = await api("/api/voice/challenge", { method: "POST", body: fd });
 
     setBtnText(btn, "Grabando…");
@@ -790,6 +801,47 @@ function sessionLine(res) {
   return `\nSesión iniciada (token válido ${minutes} min): ${res.access_token.slice(0, 24)}…`;
 }
 
+window._loginTarget = null;
+$("login-username").addEventListener("input", () => {
+  window._loginTarget = null;
+});
+
+async function resolveLoginAccounts(username) {
+  if (window._loginTarget && window._loginTarget.username === username)
+    return { uuid: window._loginTarget.user_uuid };
+  const data = await api(`/api/users?page=1&limit=100&search=${encodeURIComponent(username)}`);
+  const matches = (data.items || data).filter((u) => u.username === username);
+  if (!matches.length) return { missing: true };
+  if (matches.length === 1) {
+    window._loginTarget = { username, user_uuid: matches[0].uuid };
+    return { uuid: matches[0].uuid };
+  }
+  return { matches };
+}
+
+function offerAccountChooser(out, username, matches, retryBtnId) {
+  const opts = matches
+    .map((m) => {
+      const owner = m.owner ? m.owner.name : "Portal / admin";
+      return `<option value="${esc(m.uuid)}">${esc(owner)} · ${esc(m.username)} (${esc(m.uuid.slice(0, 8))}…)</option>`;
+    })
+    .join("");
+  out.innerHTML =
+    `<p>Ese nombre existe en varios sistemas. Elige a qué cuenta corresponde:</p>` +
+    `<div class="pass-row"><select id="login-target-choice">${opts}</select></div>` +
+    `<button id="login-target-use" class="btn"><span>Probar con esta cuenta</span></button>`;
+  $("login-target-use").addEventListener("click", () => {
+    window._loginTarget = { username, user_uuid: $("login-target-choice").value };
+    showResult(out, "info", "Cuenta elegida. Continuando…");
+    $(retryBtnId).click();
+  });
+}
+
+function loginTargetAppend(fdOrBody, uuid) {
+  if (fdOrBody instanceof FormData) fdOrBody.append("user_uuid", uuid);
+  else fdOrBody.user_uuid = uuid;
+}
+
 $("login-btn").addEventListener("click", async () => {
   const username = $("login-username").value.trim();
   const mode = $("login-mode").value;
@@ -800,11 +852,19 @@ $("login-btn").addEventListener("click", async () => {
   btn.disabled = true;
   setBtnText(btn, "Verificando…");
   try {
+    const found = await resolveLoginAccounts(username);
+    if (found.missing)
+      return showResult(out, "err", `El usuario ${username} no existe en ningún sistema`);
+    if (found.matches) return offerAccountChooser(out, username, found.matches, "login-btn");
+    const userUuid = found.uuid;
+
     if (mode === "password") {
-      const r = await apiJson("/api/auth/login", {
+      const body = {
         username,
         password: $("login-password").value,
-      });
+      };
+      loginTargetAppend(body, userUuid);
+      const r = await apiJson("/api/auth/login", body);
       showResult(out, "ok", `Autenticado correctamente.${sessionLine(r)}`);
       return;
     }
@@ -820,6 +880,7 @@ $("login-btn").addEventListener("click", async () => {
       const { id, blob, digits } = window._challenge;
       const fd = new FormData();
       fd.append("username", username);
+      loginTargetAppend(fd, userUuid);
       fd.append("challenge_id", id);
       fd.append("audio", blob, "challenge.wav");
       const r = await api("/api/voice/challenge/verify", { method: "POST", body: fd });
@@ -852,6 +913,7 @@ $("login-btn").addEventListener("click", async () => {
       }
       const fd = new FormData();
       fd.append("username", username);
+      loginTargetAppend(fd, userUuid);
       window._loginFrames.forEach((b, i) => fd.append("frames", b, `f${i}.jpg`));
       const r = await api("/api/face/login", { method: "POST", body: fd });
       window._loginFrames = null;
@@ -882,6 +944,7 @@ $("login-btn").addEventListener("click", async () => {
       if (!window._loginVoice) return showResult(out, "err", "Graba tu voz primero");
       const fd = new FormData();
       fd.append("username", username);
+      loginTargetAppend(fd, userUuid);
       fd.append("audio", window._loginVoice, "voice.wav");
       const r = await api("/api/voice/verify", { method: "POST", body: fd });
       window._loginVoice = null;
@@ -909,7 +972,7 @@ $("login-btn").addEventListener("click", async () => {
 
 const COLS = 7;
 const listState = {
-  users: { page: 1, limit: 25 },
+  users: { page: 1, limit: 25, owner: "" },
   clients: { page: 1, limit: 25 },
   operators: { page: 1, limit: 25 },
 };
@@ -924,6 +987,7 @@ function listUrl(path, key) {
     sort_dir: $(key + "-direction").value,
   });
   if (search) query.set("search", search);
+  if (key === "users" && state.owner) query.set("owner", state.owner);
   return `${path}?${query}`;
 }
 
@@ -1466,9 +1530,32 @@ async function loadUsers() {
   }
 }
 
+async function loadOwnerOptions() {
+  try {
+    const sel = $("users-owner");
+    const data = await api("/api/clients?page=1&limit=100");
+    const clients = data.items || data;
+    for (const c of clients) {
+      if ([...sel.options].some((o) => o.value === c.uuid)) continue;
+      const opt = document.createElement("option");
+      opt.value = c.uuid;
+      opt.textContent = `${c.name}${c.active ? "" : " (revocado)"}`;
+      sel.appendChild(opt);
+    }
+  } catch (e) {
+    return;
+  }
+}
+
+$("users-owner").addEventListener("change", () => {
+  listState.users.page = 1;
+  loadUsers();
+});
+
 $("refresh-users").addEventListener("click", () => {
   loadUsers();
   loadVoiceSystemBanner();
+  loadOwnerOptions();
 });
 
 function clientStatus(c) {
