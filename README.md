@@ -1,5 +1,9 @@
 # Login Biométrico — Rostro y Voz
 
+[![Documentación](https://img.shields.io/badge/📖_documentación-MkDocs-2563eb?style=for-the-badge&labelColor=1e3a5f)](https://aiwavesystems.github.io/biometric-service-py/)
+[![Estado](https://img.shields.io/badge/estado-en_desarrollo-f59e0b?style=for-the-badge&labelColor=78350f)](docs/operacion/advertencias.md)
+[![Licencia](https://img.shields.io/badge/licencia-MIT-16a34a?style=for-the-badge&labelColor=14532d)](LICENSE)
+
 Microservicio de autenticación biométrica construido con FastAPI. Está pensado
 para usarse **desde otros sistemas**: cada sistema cliente se autentica con su
 propia API key y recibe el `uuid` del usuario como identificador estable para
@@ -26,9 +30,9 @@ localmente, sin llamadas externas.
 > tiene fallas inherentes: lee las
 > [Advertencias de desarrollo](docs/operacion/advertencias.md) antes de usarlo.
 
-> 📚 Documentación completa publicada en:
-> **[aiwavesystems.github.io/biometric-service-py](https://aiwavesystems.github.io/biometric-service-py/)**
-> (generada con MkDocs desde la carpeta [`docs/`](docs/index.md)).
+> La documentación completa se genera con MkDocs desde la carpeta
+> [`docs/`](docs/index.md) y está publicada en
+> [aiwavesystems.github.io/biometric-service-py](https://aiwavesystems.github.io/biometric-service-py/).
 
 ---
 
