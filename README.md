@@ -24,10 +24,10 @@ localmente, sin llamadas externas.
 > ni tag en git; el código solo pasará a `main` cuando exista una versión estable
 > y funcional. El módulo de **voz es el más refinado** (matrícula guiada, desafío
 > de dígitos, detección de duplicados y umbrales medidos con datos reales). El
-> **rostro sigue en calibración**: su umbral de decisión aún produce fallas de
-> falsa aceptación/rechazo según la población, y está pendiente de medición con
-> una base real (`scripts/calibrate_face_db.py`). Como todo sistema biométrico,
-> tiene fallas inherentes: lee las
+> **rostro sigue en calibración**: sus primeras mediciones reales
+> (`scripts/calibrate_face_db.py`) destaparon cuentas duplicadas en la base de
+> desarrollo y confirmaron que hace falta más población antes de fijar el umbral
+> definitivo. Como todo sistema biométrico, tiene fallas inherentes: lee las
 > [Advertencias de desarrollo](docs/operacion/advertencias.md) antes de usarlo.
 
 > La documentación completa se genera con MkDocs desde la carpeta

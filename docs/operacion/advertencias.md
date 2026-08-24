@@ -60,14 +60,18 @@ Mientras un módulo esté por debajo del mínimo:
 ## El login facial también exige validación y ajuste propio
 
 Igual que la voz, el rostro se calibró con una muestra mínima: 14 fotos reales de
-una persona y 3 impostores visualmente muy distintos. Cada sistema debe:
+una persona y 3 impostores visualmente muy distintos. Cada sistema debe
+recalibrar contra su propia población, ahora con dos vías complementarias:
 
-1. Recolectar capturas reales de sus usuarios con `datos_cara/` estructurado por
+1. Matricula usuarios reales por la vía normal (API o portal) y mide directamente
+   sobre las plantillas guardadas: `python scripts/calibrate_face_db.py`. Si
+   aparecen pares impostores altos, son cuentas duplicadas: exclúyelos con
+   `--excluir-sospechosos`, corrige las cuentas y vuelve a medir.
+2. Para condiciones controladas (luz baja, contraluz, cámaras distintas,
+   distancia) usa `python scripts/calibrate_face.py datos_cara` con carpetas por
    persona.
-2. Ejecutar `python scripts/calibrate_face.py datos_cara` y elegir umbral con
-   esa curva FAR/FRR, no con el valor de fábrica (`0.363`).
-3. Probar en las condiciones reales de captura: luz baja, contraluz, cámaras
-   distintas y distancia al rostro.
+3. Elige umbral con esas curvas FAR/FRR y los cuantiles por FAR objetivo, no con
+   el valor de fábrica (`0.363`), y respeta la población mínima definida arriba.
 
 Ten presente que el liveness **solo detecta fotografía estática**: ni vídeos en
 pantalla, ni máscaras, ni deepfakes. Si tu sistema necesita resistencia a esos
