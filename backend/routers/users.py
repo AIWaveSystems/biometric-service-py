@@ -356,7 +356,7 @@ def add_faces_by_uuid(
     db: Session = Depends(get_db),
 ):
     user = _get_user_by_uuid(db, user_uuid, request)
-    return add_faces(user.username, request, image, images, db)
+    return add_faces(request, user.username, image, images, db)
 
 
 @router.post("/by-uuid/{user_uuid}/password")
@@ -367,7 +367,7 @@ def set_password_by_uuid(
     db: Session = Depends(get_db),
 ):
     user = _get_user_by_uuid(db, user_uuid, request)
-    return set_password(user.username, request, password, db)
+    return set_password(request, user.username, password, db)
 
 
 @router.post("/by-uuid/{user_uuid}/rename")
@@ -378,7 +378,7 @@ def rename_user_by_uuid(
     db: Session = Depends(get_db),
 ):
     user = _get_user_by_uuid(db, user_uuid, request)
-    return rename_user(user.username, request, new_username, db)
+    return rename_user(request, user.username, new_username, db)
 
 
 @router.delete("/by-uuid/{user_uuid}")
