@@ -756,13 +756,18 @@ $("login-challenge").addEventListener("click", async () => {
       setState(state, "Sin desafío", "");
       return showResult($("login-result"), "err", `El usuario ${username} no existe en ningún sistema`);
     }
+    let userUuid = found.uuid;
     if (found.matches) {
-      setState(state, "Sin desafío", "");
-      return offerAccountChooser($("login-result"), username, found.matches, "login-challenge");
+      setState(state, "Elige a qué cuenta corresponde…", "busy");
+      userUuid = await chooseAccount($("login-result"), found.matches);
+      if (!userUuid) {
+        setState(state, "Sin desafío", "");
+        return showResult($("login-result"), "info", "Operación cancelada");
+      }
     }
     const fd = new FormData();
     fd.append("username", username);
-    loginTargetAppend(fd, found.uuid);
+    loginTargetAppend(fd, userUuid);
     const ch = await api("/api/voice/challenge", { method: "POST", body: fd });
 
     setBtnText(btn, "Grabando…");
@@ -801,25 +806,15 @@ function sessionLine(res) {
   return `\nSesión iniciada (token válido ${minutes} min): ${res.access_token.slice(0, 24)}…`;
 }
 
-window._loginTarget = null;
-$("login-username").addEventListener("input", () => {
-  window._loginTarget = null;
-});
-
 async function resolveLoginAccounts(username) {
-  if (window._loginTarget && window._loginTarget.username === username)
-    return { uuid: window._loginTarget.user_uuid };
   const data = await api(`/api/users?page=1&limit=100&search=${encodeURIComponent(username)}`);
   const matches = (data.items || data).filter((u) => u.username === username);
   if (!matches.length) return { missing: true };
-  if (matches.length === 1) {
-    window._loginTarget = { username, user_uuid: matches[0].uuid };
-    return { uuid: matches[0].uuid };
-  }
+  if (matches.length === 1) return { uuid: matches[0].uuid };
   return { matches };
 }
 
-function offerAccountChooser(out, username, matches, retryBtnId) {
+function chooseAccount(out, matches) {
   const opts = matches
     .map((m) => {
       const owner = m.owner ? m.owner.name : "Portal / admin";
@@ -828,12 +823,15 @@ function offerAccountChooser(out, username, matches, retryBtnId) {
     .join("");
   out.innerHTML =
     `<p>Ese nombre existe en varios sistemas. Elige a qué cuenta corresponde:</p>` +
-    `<div class="pass-row"><select id="login-target-choice">${opts}</select></div>` +
-    `<button id="login-target-use" class="btn"><span>Probar con esta cuenta</span></button>`;
-  $("login-target-use").addEventListener("click", () => {
-    window._loginTarget = { username, user_uuid: $("login-target-choice").value };
-    showResult(out, "info", "Cuenta elegida. Continuando…");
-    $(retryBtnId).click();
+    `<div class="field"><label>Cuenta</label><select id="login-target-choice">${opts}</select></div>` +
+    `<div class="chooser-actions">` +
+    `<button id="login-target-use" class="btn"><span>Probar con esta cuenta</span></button>` +
+    `<button id="login-target-cancel" class="btn"><span>Cancelar</span></button></div>`;
+  return new Promise((resolve) => {
+    $("login-target-use").addEventListener("click", () =>
+      resolve($("login-target-choice").value),
+    );
+    $("login-target-cancel").addEventListener("click", () => resolve(null));
   });
 }
 
@@ -855,8 +853,12 @@ $("login-btn").addEventListener("click", async () => {
     const found = await resolveLoginAccounts(username);
     if (found.missing)
       return showResult(out, "err", `El usuario ${username} no existe en ningún sistema`);
-    if (found.matches) return offerAccountChooser(out, username, found.matches, "login-btn");
-    const userUuid = found.uuid;
+    let userUuid = found.uuid;
+    if (found.matches) userUuid = await chooseAccount(out, found.matches);
+    if (!userUuid) {
+      setBtnText(btn, "Entrar");
+      return showResult(out, "info", "Operación cancelada");
+    }
 
     if (mode === "password") {
       const body = {
