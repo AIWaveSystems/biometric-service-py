@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from passlib.context import CryptContext
@@ -8,10 +10,10 @@ from sqlalchemy.orm import Session
 from ..biometrics.face import detector, embedder, quality
 from ..config import settings
 from ..database import get_db
-from ..models import FaceTemplate, User
+from ..models import ApiClient, FaceTemplate, User
 from ..ownership import (
     api_client_id,
-    resolve_user_by_username,
+    resolve_user,
     scope_new_username,
     scope_user_query,
 )
@@ -170,6 +172,7 @@ def list_users(
     page: int | None = Query(default=None, ge=1),
     limit: int = Query(default=25, ge=1, le=100),
     search: str | None = Query(default=None, max_length=100),
+    owner: str | None = Query(default=None, max_length=64),
     sort_by: str = Query(default="username", max_length=50),
     sort_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
@@ -177,13 +180,19 @@ def list_users(
     params = PaginationParams(
         page=page or 1, limit=limit, search=search, sort_by=sort_by, sort_dir=sort_dir
     )
-    if page is None and search is None and sort_by == "username" and sort_dir == "asc":
-        users = db.execute(select(User).order_by(User.username)).scalars().all()
+    query = select(User)
+    if owner is not None:
+        query = _filter_by_owner(db, query, owner)
+    fast_path = (
+        page is None and search is None and owner is None and sort_by == "username" and sort_dir == "asc"
+    )
+    if fast_path:
+        users = db.execute(query.order_by(User.username)).scalars().all()
         return [_user_response(u) for u in users]
     try:
         users, meta = paginate(
             db,
-            select(User),
+            query,
             params,
             (User.username,),
             {"username": User.username, "created_at": User.created_at, "uuid": User.uuid},
@@ -191,6 +200,19 @@ def list_users(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return paginated_response([_user_response(u) for u in users], meta)
+
+
+def _filter_by_owner(db: Session, query, owner: str):
+    if owner == "portal":
+        return query.where(User.api_client_id.is_(None))
+    try:
+        client_uuid = UUID(owner)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Sistema cliente desconocido")
+    client = db.execute(select(ApiClient).where(ApiClient.uuid == client_uuid)).scalar_one_or_none()
+    if client is None:
+        raise HTTPException(status_code=400, detail="Sistema cliente desconocido")
+    return query.where(User.api_client_id == client.id)
 
 
 @router.get("/by-uuid/{user_uuid}", response_model=UserResponse)
@@ -202,8 +224,10 @@ def get_by_uuid(user_uuid: str, request: Request, db: Session = Depends(get_db))
     return _user_response(user)
 
 
-def _get_user(db: Session, username: str, request: Request | None = None) -> User:
-    return resolve_user_by_username(db, request, username)
+def _get_user(
+    db: Session, username: str, request: Request | None = None, user_uuid: str | None = None
+) -> User:
+    return resolve_user(db, request, username, user_uuid)
 
 
 @router.post("/{username}/faces")
@@ -308,7 +332,7 @@ def rename_user(
 
 @router.delete("/{username}")
 def delete_user(username: str, request: Request, db: Session = Depends(get_db)):
-    user = resolve_user_by_username(db, request, username)
+    user = resolve_user(db, request, username)
     deleted_uuid = str(user.uuid)
     db.delete(user)
     db.commit()
