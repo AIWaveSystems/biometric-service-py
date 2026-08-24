@@ -18,7 +18,12 @@ POST /api/users/register
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `username` | text | yes | 3 to 100 characters, unique |
+| `username` | text | yes | 3 to 100 characters, unique within your system |
+
+!!! note "Per-system names"
+    `username` uniqueness is **per API client**: each connected web has its own namespace
+    and the same person (or the same name) can exist across several webs without conflict.
+    Within a single system the name remains unique.
 | `password` | text | no | 6 to 128 characters |
 | `image` | file | no | One photo |
 | `images` | file[] | no | Several photos, repeating the field |
@@ -65,7 +70,7 @@ curl -X POST http://localhost:8000/api/users/register \
 | --- | --- |
 | 400 | No biometrics and no password arrived |
 | 400 | No photo has a detectable face or sufficient quality |
-| 409 | The username already exists |
+| 409 | The username already exists (within your system) |
 | 409 | The voice is already enrolled on another account (see [Voice](voz.md#duplicate-detection)) |
 
 ---

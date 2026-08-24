@@ -96,6 +96,13 @@ cara de otro».
 - Corrección: borrar o volver a matricular la cuenta duplicada con otra persona,
   y repetir la medición.
 
+!!! note "El alcance es por sistema cliente"
+    «Una cuenta» significa una cuenta **dentro de cada web conectada**. Cada cliente
+    API tiene su propio espacio de nombres: la misma persona puede (y suele) tener
+    una cuenta en cada web que la usa, con su propio `username` — incluso el mismo
+    nombre en varias webs. Lo que no debe existir son dos cuentas de la misma
+    persona **dentro del mismo sistema**.
+
 ## Un sistema biométrico falla de forma lógica e inevitable
 
 Esto no es un defecto puntual sino una propiedad del problema:
