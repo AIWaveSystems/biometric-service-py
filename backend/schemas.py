@@ -32,6 +32,7 @@ class FaceLoginResponse(BaseModel):
     uuid: str | None = None
     liveness_passed: bool
     similarity: float
+    core: float
     threshold: float
     n_frames: int
     n_faces: int

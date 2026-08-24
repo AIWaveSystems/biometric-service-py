@@ -1,4 +1,5 @@
 import base64
+import logging
 from binascii import Error as B64Error
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,6 +23,11 @@ from .security import SCOPE_PORTAL, constant_time_equals, decode_token
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
 
 DOCS_PATHS = {"/docs", "/redoc", "/openapi.json"}
 OPEN_API_PATHS = {"/api/portal/auth"}

@@ -1,3 +1,5 @@
+import logging
+
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -20,6 +22,8 @@ from ..schemas import (
 from ..security import create_session_token, replay_guard
 
 router = APIRouter(prefix="/api/face", tags=["face"])
+
+logger = logging.getLogger("biometric.face")
 
 ALGORITHM = "sface"
 MIN_DETECTION_CONFIDENCE = 0.7
@@ -279,12 +283,28 @@ def login(
         else:
             reason = "El rostro no coincide con las plantillas registradas."
 
+    logger.info(
+        "face_login user=%s uuid=%s core=%.4f best=%.4f threshold=%.3f blink=%s "
+        "borderline=%s usable=%d/%d verified=%s",
+        username,
+        user.uuid,
+        core,
+        best,
+        threshold,
+        blink,
+        borderline,
+        result["n_usable"],
+        result["n_frames"],
+        verified,
+    )
+
     return FaceLoginResponse(
         verified=verified,
         username=username if verified else None,
         uuid=str(user.uuid) if verified else None,
         liveness_passed=blink,
         similarity=round(best, 4),
+        core=round(core, 4),
         threshold=threshold,
         n_frames=result["n_frames"],
         n_faces=result["n_faces"],
