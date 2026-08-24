@@ -869,7 +869,7 @@ $("login-btn").addEventListener("click", async () => {
   }
 });
 
-const COLS = 6;
+const COLS = 7;
 const listState = {
   users: { page: 1, limit: 25 },
   clients: { page: 1, limit: 25 },
@@ -969,8 +969,8 @@ async function loadVoiceSystemBanner() {
 
 let editando = null;
 
-function userPath(username, suffix = "") {
-  return `/api/users/${encodeURIComponent(username)}${suffix}`;
+function userPath(uuid, suffix = "") {
+  return `/api/users/by-uuid/${encodeURIComponent(uuid)}${suffix}`;
 }
 
 function buildEditor(u, refrescar) {
@@ -1037,7 +1037,7 @@ function buildEditor(u, refrescar) {
       if (!nuevo || nuevo === u.username) return;
       const fd = new FormData();
       fd.append("new_username", nuevo);
-      const r = await api(userPath(u.username, "/rename"), { method: "POST", body: fd });
+      const r = await api(userPath(u.uuid, "/rename"), { method: "POST", body: fd });
       ok(`Renombrado: ${r.previous} → ${r.username}`);
     })
   );
@@ -1058,7 +1058,7 @@ function buildEditor(u, refrescar) {
       if (inClave.value.length < 6) throw new Error("Mínimo 6 caracteres");
       const fd = new FormData();
       fd.append("password", inClave.value);
-      await api(userPath(u.username, "/password"), { method: "POST", body: fd });
+      await api(userPath(u.uuid, "/password"), { method: "POST", body: fd });
       inClave.value = "";
       ok("Contraseña actualizada");
     })
@@ -1067,7 +1067,7 @@ function buildEditor(u, refrescar) {
     fClave.appendChild(
       boton("Quitar", "danger", async () => {
         if (!confirm(`¿Quitar la contraseña de ${u.username}?`)) return;
-        await api(userPath(u.username, "/password"), { method: "POST", body: new FormData() });
+        await api(userPath(u.uuid, "/password"), { method: "POST", body: new FormData() });
         ok("Contraseña retirada: ahora solo entra con biometría");
       })
     );
@@ -1111,7 +1111,7 @@ function buildEditor(u, refrescar) {
       if (!inFotos.files.length) throw new Error("Elige al menos una foto");
       const fd = new FormData();
       for (const f of inFotos.files) fd.append("images", f, f.name);
-      const r = await api(userPath(u.username, "/faces"), { method: "POST", body: fd });
+      const r = await api(userPath(u.uuid, "/faces"), { method: "POST", body: fd });
       inFotos.value = "";
       ok(
         `Añadidas ${r.added} plantilla(s). Total: ${r.total_templates}.` +
@@ -1163,7 +1163,7 @@ function buildEditor(u, refrescar) {
       if (!pendientes.length) throw new Error("No hay fotos capturadas");
       const fd = new FormData();
       pendientes.forEach((b, i) => fd.append("images", b, `cam${i}.jpg`));
-      const r = await api(userPath(u.username, "/faces"), { method: "POST", body: fd });
+      const r = await api(userPath(u.uuid, "/faces"), { method: "POST", body: fd });
       pendientes.length = 0;
       closeCamera(video);
       camWrap.hidden = true;
@@ -1341,6 +1341,7 @@ async function loadUsers() {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${u.username}</td>
+        <td>${u.owner ? `${u.owner.name} <code>lbs_${u.owner.key_prefix}_…</code>` : "Portal / admin"}</td>
         <td>${badge(u.has_password)}</td>
         <td>${
           u.face_templates.length >= 3
@@ -1373,7 +1374,7 @@ async function loadUsers() {
       del.addEventListener("click", async () => {
         if (!confirm(`¿Eliminar al usuario ${u.username}? Se borran también sus plantillas.`))
           return;
-        await api(userPath(u.username), { method: "DELETE" });
+        await api(userPath(u.uuid), { method: "DELETE" });
         toast(`Usuario ${u.username} eliminado`);
         editando = null;
         loadUsers();
