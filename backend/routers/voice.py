@@ -10,7 +10,7 @@ from ..biometrics.voice import embedder, pipeline
 from ..config import settings
 from ..database import get_db
 from ..models import User, VoiceDigitTemplate, VoiceTemplate
-from ..ownership import api_client_id, scope_user_query
+from ..ownership import api_client_id, resolve_user_by_username, scope_user_query
 from ..schemas import (
     VoiceChallengeResponse,
     VoiceChallengeVerifyResponse,
@@ -27,13 +27,7 @@ MIN_BACKGROUND_SPEAKERS = 2
 
 
 def _get_user(db: Session, username: str, request: Request | None = None) -> User:
-    query = select(User).where(User.username == username)
-    if request is not None:
-        query = scope_user_query(query, request, User)
-    user = db.execute(query).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return user
+    return resolve_user_by_username(db, request, username)
 
 
 def _background_templates(

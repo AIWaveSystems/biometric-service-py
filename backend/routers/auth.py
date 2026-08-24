@@ -1,13 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from passlib.context import CryptContext
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..models import User
-from ..ownership import scope_user_query
+from ..ownership import resolve_user_by_username
 from ..schemas import TokenResponse
 from ..security import auth_limiter, create_session_token
 
@@ -28,8 +26,7 @@ def login(body: PasswordLogin, request: Request, db: Session = Depends(get_db)):
     if not auth_limiter.allow(f"password:{client}:{body.username}"):
         raise HTTPException(status_code=429, detail="Demasiados intentos, espera un momento")
 
-    query = scope_user_query(select(User).where(User.username == body.username), request, User)
-    user = db.execute(query).scalar_one_or_none()
+    user = resolve_user_by_username(db, request, body.username)
     stored = user.password_hash if user and user.password_hash else _DUMMY_HASH
     valid = pwd.verify(body.password, stored)
 

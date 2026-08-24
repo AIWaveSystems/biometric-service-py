@@ -12,7 +12,12 @@ from ..biometrics.face import detector, embedder, liveness, quality
 from ..config import settings
 from ..database import get_db
 from ..models import FaceTemplate, User
-from ..ownership import api_client_id, scope_user_query
+from ..ownership import (
+    api_client_id,
+    resolve_user_by_username,
+    scope_new_username,
+    scope_user_query,
+)
 from ..schemas import (
     FaceIdentifyResponse,
     FaceLoginResponse,
@@ -76,13 +81,7 @@ def _core_similarity(sims: list[float]) -> float:
 
 
 def _get_user(db: Session, username: str, request: Request | None = None) -> User:
-    query = select(User).where(User.username == username)
-    if request is not None:
-        query = scope_user_query(query, request, User)
-    user = db.execute(query).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return user
+    return resolve_user_by_username(db, request, username)
 
 
 def _templates_or_404(user: User) -> list[FaceTemplate]:
@@ -103,7 +102,7 @@ def register(
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    existing_query = scope_user_query(select(User).where(User.username == username), request, User)
+    existing_query = scope_new_username(select(User).where(User.username == username), request, User)
     existing = db.execute(existing_query).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=409, detail="El usuario ya existe")
