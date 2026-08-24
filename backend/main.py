@@ -156,8 +156,32 @@ class PortalApiAuth(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self'; "
+        "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
+        "font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    ),
+}
+
+
+class SecurityHeaders(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        skip_csp = request.url.path in DOCS_PATHS
+        for name, value in SECURITY_HEADERS.items():
+            if skip_csp and name == "Content-Security-Policy":
+                continue
+            response.headers.setdefault(name, value)
+        return response
+
+
 app.add_middleware(PortalApiAuth)
 app.add_middleware(DocsBasicAuth)
+app.add_middleware(SecurityHeaders)
 
 _origins = settings.cors_origin_list
 if _origins:
