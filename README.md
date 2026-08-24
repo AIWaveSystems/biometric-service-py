@@ -1485,7 +1485,7 @@ no generaliza.
 | `test_voice_duplicates.py` | Valida el guardia de voces duplicadas contra un servidor. Crea y borra **solo** sus usuarios. |
 | `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
 | `calibrate_face.py` | Calcula FAR/FRR/EER faciales con datos reales. |
-| `calibrate_face_db.py` | Igual, pero desde las plantillas ya en la base, sin capturar nada. Marca cuentas duplicadas. Solo lee. |
+| `calibrate_face_db.py` | Igual, pero desde las plantillas ya en la base, sin capturar nada. Marca cuentas duplicadas, las excluye con `--excluir-sospechosos` y da intervalos de confianza. Solo lee. |
 | `calibrate_voice.py` | Calcula FAR/FRR/EER de voz con datos reales. |
 | `diagnose_face.py` | Detección, calidad y matriz de similitud foto a foto. |
 | `diagnose_liveness.py` | Vuelca la señal de apertura ocular frame a frame. |
