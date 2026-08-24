@@ -21,6 +21,7 @@ from ..security import create_session_token, replay_guard
 router = APIRouter(prefix="/api/face", tags=["face"])
 
 ALGORITHM = "sface"
+MIN_DETECTION_CONFIDENCE = 0.7
 
 
 def _embedding_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarray:
@@ -161,7 +162,7 @@ def login(
     payloads = [f.file.read() for f in frames]
 
     sequence: list[tuple[np.ndarray, np.ndarray] | None] = []
-    feature_list: list[np.ndarray] = []
+    candidates: list[tuple[int, np.ndarray, np.ndarray]] = []
     quality_problem: str | None = None
     for data in payloads:
         try:
@@ -174,13 +175,17 @@ def login(
             sequence.append(None)
             continue
         sequence.append((img, face))
+        if embedder.confidence(face) < MIN_DETECTION_CONFIDENCE:
+            continue
         rect = embedder.face_rect(face, img.shape)
         normalized = detector.normalize_face(img, rect)
-        problem = quality.check(quality.measure(normalized, rect))
+        problem = quality.check(
+            quality.measure(normalized, rect, detector.raw_face(img, rect))
+        )
         if problem is not None:
             quality_problem = problem
             continue
-        feature_list.append(embedder.embed(img, face))
+        candidates.append((len(sequence) - 1, img, face))
 
     result = liveness.analyze(
         sequence,
@@ -193,7 +198,17 @@ def login(
             status_code=400,
             detail="No se detecto la cara en suficientes frames. Asegurate de mirar a la camara.",
         )
-    if not feature_list:
+    moved = result["moved"]
+    features = [embedder.embed(img, face) for idx, img, face in candidates if not moved[idx]]
+    if not features:
+        if result["n_moved"]:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Demasiado movimiento durante la captura. "
+                    "Quedate quieto y repite el parpadeo."
+                ),
+            )
         raise HTTPException(
             status_code=400,
             detail=quality_problem or "Ningun frame tiene calidad suficiente para verificar.",
@@ -204,7 +219,7 @@ def login(
             detail="Captura repetida detectada. Vuelve a grabar el parpadeo.",
         )
 
-    best = max((_best_similarity(f, templates) for f in feature_list), default=0.0)
+    best = max((_best_similarity(f, templates) for f in features), default=0.0)
     blink = result["blink_detected"]
     match = best >= settings.face_threshold
     verified = blink and match
