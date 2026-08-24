@@ -16,7 +16,7 @@ from .api_clients import resolve_api_key
 from .biometrics.face import embedder
 from .biometrics.face import landmarks as face_landmarks
 from .config import settings
-from .database import Base, SessionLocal, engine, get_db
+from .database import SessionLocal, get_db
 from .routers import auth, clients, face, portal, users, voice
 from .routers.portal import ensure_bootstrap_user
 from .security import SCOPE_PORTAL, constant_time_equals, decode_token
@@ -80,7 +80,6 @@ async def lifespan(app: FastAPI):
             "Faltan los modelos ONNX de reconocimiento facial. "
             "Ejecuta: python scripts/fetch_models.py"
         )
-    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         ensure_bootstrap_user(db)
