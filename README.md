@@ -1470,12 +1470,15 @@ no generaliza.
 | `test_digits.py` | Troceo, desafíos de un solo uso y discriminación de dígitos. No toca la base. |
 | `test_challenge_api.py` | Desafío de extremo a extremo contra un servidor. Crea y borra **solo** su propio usuario temporal. |
 | `test_replay.py` | Demuestra que una voz reproducida por altavoz se acepta. |
+| `calibrate_face.py` | Mide el umbral facial desde fotos en `datos_cara/<persona>/`. |
+| `calibrate_face_db.py` | Mide el umbral facial desde las plantillas ya guardadas en la base: distribuciones genuino/impostor, EER, umbral por FAR objetivo y pares impostores altos (cuentas duplicadas o gemelas). Solo lectura. |
 | `test_apikeys.py` | Valida cabecera, hash, permisos, caducidad, revocación y rotación de API keys. Revoca solo las suyas. |
 | `diagnose_voice_db.py` | Puntúa audio real contra **todas** las cuentas de la base y recomienda umbral. Solo lee. |
 | `test_speaker_embedding.py` | Valida el fbank estilo Kaldi, el embedding CAM++ y su separación. No toca la base. |
 | `test_voice_duplicates.py` | Valida el guardia de voces duplicadas contra un servidor. Crea y borra **solo** sus usuarios. |
 | `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
 | `calibrate_face.py` | Calcula FAR/FRR/EER faciales con datos reales. |
+| `calibrate_face_db.py` | Igual, pero desde las plantillas ya en la base, sin capturar nada. Marca cuentas duplicadas. Solo lee. |
 | `calibrate_voice.py` | Calcula FAR/FRR/EER de voz con datos reales. |
 | `diagnose_face.py` | Detección, calidad y matriz de similitud foto a foto. |
 | `diagnose_liveness.py` | Vuelca la señal de apertura ocular frame a frame. |
