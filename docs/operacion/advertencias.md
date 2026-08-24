@@ -73,6 +73,25 @@ Ten presente que el liveness **solo detecta fotografía estática**: ni vídeos 
 pantalla, ni máscaras, ni deepfakes. Si tu sistema necesita resistencia a esos
 ataques, hay que añadir mecanismos adicionales por código.
 
+## Una persona, una cuenta
+
+Matricular a la misma persona en dos cuentas rompe la seguridad sin que ningún
+componente falle: la cara coincide porque es la misma, pero abre la cuenta
+equivocada. Medido en la base de desarrollo: dos cuentas gemelas puntuaban hasta
+**0.79** entre sí, muy por encima del umbral 0.363, mientras los impostores
+legítimos rara vez superan 0.40. Es la causa clásica del «a veces se entra con la
+cara de otro».
+
+- La voz tiene guardia automático que rechaza matrículas duplicadas
+  (`VOICE_REJECT_DUPLICATES`). El rostro **no lo tiene**: es responsabilidad del
+  proceso de alta de cada sistema cliente garantizar que una persona tenga una
+  sola cuenta.
+- Detección: `POST /api/voice/identify` con `ambiguous: true` delata voces
+  compartidas; `scripts/calibrate_face_db.py` lista los pares de plantillas
+  faciales con similitud sospechosa entre usuarios distintos.
+- Corrección: borrar o volver a matricular la cuenta duplicada con otra persona,
+  y repetir la medición.
+
 ## Un sistema biométrico falla de forma lógica e inevitable
 
 Esto no es un defecto puntual sino una propiedad del problema:

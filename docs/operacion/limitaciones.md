@@ -346,6 +346,31 @@ false, autoGainControl: false, channelCount: 1`.
 
 ---
 
+## Rostros duplicados entre cuentas
+
+**Gravedad: alta. Sin guardia automatico en rostro.**
+
+La misma persona matriculada en dos cuentas produce aceptaciones cruzadas: el
+rostro coincide con ambas porque es el mismo. Medido en la base de desarrollo
+con plantillas sface reales:
+
+| Medicion | Valor |
+| --- | --- |
+| Cuenta gemela, mejor par de plantillas | **0.7857** |
+| Cuenta gemela, peor par | 0.6259 |
+| Impostores legitimos, mejor caso | 0.39 |
+
+Con umbral 0.363, seis pares de la cuenta gemela cruzan la decision: el login
+acepta intermitentemente en la cuenta equivocada. El guardia existe para voz
+(`VOICE_REJECT_DUPLICATES`) pero **no para rostro**, donde se decidio no bloquear
+matriculas parecidas (familiares, gemelos verdaderos).
+
+**Mitigacion:** regla operativa de una persona por cuenta en el alta de cada
+sistema cliente, deteccion con `calibrate_face_db.py` (pares impostores altos) y
+correccion borrando o volviendo a matricular la cuenta duplicada.
+
+---
+
 ## Resumen
 
 | Limitacion | Gravedad | Estado |
@@ -360,6 +385,7 @@ false, autoGainControl: false, channelCount: 1`.
 | Deteccion facial imperfecta | Baja | Mitigado |
 | Sesgo del CMVN en digitos | Alta | Corregido |
 | Voz duplicada | Alta | Corregido |
+| Rostros duplicados entre cuentas | Alta | **Sin resolver** (deteccion con `calibrate_face_db.py`) |
 | Umbral LLR bajo | Alta | Corregido |
 | Audio en silencio aceptado | Media | Corregido |
 | Procesado de audio del navegador | Media | Corregido |
