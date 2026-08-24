@@ -24,6 +24,12 @@ POST /api/users/register
     La unicidad del `username` es **por cliente API**: cada web conectada tiene su propio
     espacio de nombres y la misma persona (o el mismo nombre) puede existir en varias webs
     sin conflicto. Dentro de un mismo sistema, el nombre sigue siendo unico.
+
+!!! tip "Que enviar como `username`"
+    Envia el identificador que tu propia web ya usa para el login normal de la persona:
+    su nombre de usuario o su correo. Como ese valor ya es unico dentro de tu sistema,
+    no colisionara nunca, y el usuario se llevara la misma credencial mental a ambos
+    lados. Evita inventar identificadores nuevos solo para este servicio.
 | `password` | texto | no | 6 a 128 caracteres |
 | `image` | archivo | no | Una foto |
 | `images` | archivo[] | no | Varias fotos, repitiendo el campo |

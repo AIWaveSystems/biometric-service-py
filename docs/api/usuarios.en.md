@@ -24,6 +24,12 @@ POST /api/users/register
     `username` uniqueness is **per API client**: each connected web has its own namespace
     and the same person (or the same name) can exist across several webs without conflict.
     Within a single system the name remains unique.
+
+!!! tip "What to send as `username`"
+    Send the identifier your own web already uses for normal login: their username or
+    email. Since that value is already unique inside your system it will never collide,
+    and users keep one mental credential across both sides. Do not invent new
+    identifiers just for this service.
 | `password` | text | no | 6 to 128 characters |
 | `image` | file | no | One photo |
 | `images` | file[] | no | Several photos, repeating the field |
