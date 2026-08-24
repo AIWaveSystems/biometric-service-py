@@ -16,6 +16,13 @@ localmente, sin llamadas externas.
 > clasifica como dato sensible. Requieren autorización previa, explícita e
 > informada del titular. Ver [Limitaciones conocidas](#limitaciones-conocidas).
 
+> ⚠️ **Proyecto en desarrollo, aún no liberado.** El login por voz y el facial
+> exigen validación y ajuste de umbrales —y en ocasiones de código— según las
+> necesidades de cada sistema integrador, y como todo sistema biométrico tiene
+> fallas lógicas inherentes (falsos positivos/negativos, ataques de
+> presentación, degradación silenciosa). Lee las
+> [Advertencias de desarrollo](docs/operacion/advertencias.md) antes de usarlo.
+
 ---
 
 ## Índice
@@ -35,7 +42,8 @@ localmente, sin llamadas externas.
 13. [Calibración de umbrales](#calibración-de-umbrales)
 14. [Scripts](#scripts)
 15. [Limitaciones conocidas](#limitaciones-conocidas)
-16. [Licencia](#licencia)
+16. [Advertencias de desarrollo y cómo contribuir](docs/operacion/advertencias.md)
+17. [Licencia](#licencia)
 
 ---
 
@@ -1495,6 +1503,12 @@ Acepta `BASE_URL`, `PORTAL_USER` y `PORTAL_PASSWORD` como variables de entorno.
 ---
 
 ## Limitaciones conocidas
+
+> Además de esta sección, revisa las
+> [Advertencias de desarrollo](docs/operacion/advertencias.md): el estado real
+> del proyecto, por qué el login por voz y el facial exigen calibración y ajuste
+> de código en cada sistema integrador, y cómo proponer correcciones con un PR
+> hacia `develop`.
 
 ### Defectos abiertos
 
