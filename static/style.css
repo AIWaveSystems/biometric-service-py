@@ -117,6 +117,10 @@ h2 { margin-bottom: 16px; font-size: 18px; }
 }
 .field input:focus, .field select:focus { outline: 1px solid var(--accent); }
 
+.pass-row { display: flex; gap: 8px; align-items: stretch; }
+.pass-row input { flex: 1 1 auto; min-width: 0; }
+.pass-row .btn { white-space: nowrap; }
+
 .sensor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
 @media (max-width: 640px) { .sensor-grid { grid-template-columns: 1fr; } }
 

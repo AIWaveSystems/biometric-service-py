@@ -411,7 +411,10 @@
             </div>
             <div class="field">
               <label>Contraseña (mín. 8 caracteres)</label>
-              <input type="password" id="op-password" autocomplete="new-password" />
+              <div class="pass-row">
+                <input type="password" id="op-password" autocomplete="new-password" />
+                <button type="button" id="op-gen-pass" class="btn sm">Generar</button>
+              </div>
             </div>
             <button id="op-create-btn" class="btn primary full">Crear operador</button>
             <div id="op-create-result" class="result" hidden></div>
@@ -425,7 +428,10 @@
             </div>
             <div class="field">
               <label>Nueva contraseña</label>
-              <input type="password" id="op-new-pass" autocomplete="new-password" />
+              <div class="pass-row">
+                <input type="password" id="op-new-pass" autocomplete="new-password" />
+                <button type="button" id="op-gen-new" class="btn sm">Generar</button>
+              </div>
             </div>
             <button id="op-change-pass-btn" class="btn full">Actualizar contraseña</button>
             <div id="op-pass-result" class="result" hidden></div>

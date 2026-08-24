@@ -1606,6 +1606,42 @@ async function loadOperators() {
 
 $("refresh-operators").addEventListener("click", loadOperators);
 
+function generarContrasena(len = 16) {
+  const grupos = [
+    "abcdefghijkmnpqrstuvwxyz",
+    "ABCDEFGHJKLMNPQRSTUVWXYZ",
+    "23456789",
+    "!@#$%&*+-_?",
+  ];
+  const todos = grupos.join("");
+  const azar = () => {
+    const a = new Uint32Array(1);
+    crypto.getRandomValues(a);
+    return a[0];
+  };
+  const chars = grupos.map((g) => g[azar() % g.length]);
+  while (chars.length < len) chars.push(todos[azar() % todos.length]);
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = azar() % (i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
+function wireGenerador(btnId, inputId) {
+  $(btnId).addEventListener("click", () => {
+    const inp = $(inputId);
+    inp.value = generarContrasena();
+    inp.type = "text";
+    inp.focus();
+    inp.select();
+    toast("Contraseña generada: cópiala y guárdala antes de continuar");
+  });
+}
+
+wireGenerador("op-gen-pass", "op-password");
+wireGenerador("op-gen-new", "op-new-pass");
+
 $("op-create-btn").addEventListener("click", async () => {
   const btn = $("op-create-btn");
   const out = $("op-create-result");
