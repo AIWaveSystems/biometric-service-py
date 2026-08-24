@@ -867,11 +867,11 @@ $("login-btn").addEventListener("click", async () => {
           "err",
           `Rostro NO verificado.\n${r.reason || ""}\n` +
             `Liveness: ${r.liveness_passed ? "detectado" : "no detectado"} · ` +
-            `Similitud: ${r.similarity} (umbral ${r.threshold}) · ` +
+            `Similitud: core ${r.core} / mejor ${r.similarity} (umbral ${r.threshold}) · ` +
             `Caras: ${r.n_faces}/${r.n_frames}${usable}`
         );
       }
-      faceInfo = `Rostro verificado (liveness OK · similitud ${r.similarity})`;
+      faceInfo = `Rostro verificado (liveness OK · core ${r.core} / mejor ${r.similarity}, umbral ${r.threshold})`;
       if (mode === "face") {
         return showResult(out, "ok", `${faceInfo}\nBienvenido, ${username}.${sessionLine(r)}`);
       }
