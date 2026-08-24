@@ -284,13 +284,25 @@
           <div id="analizar-result" class="result"></div>
         </div>
 
-        <button id="refresh-users" class="btn">
+        <div class="toolbar list-controls" data-list="users">
+          <input type="search" id="users-search" placeholder="Buscar usuario" />
+          <select id="users-sort">
+            <option value="username">Nombre</option>
+            <option value="created_at">Fecha de alta</option>
+          </select>
+          <select id="users-direction" aria-label="Dirección del orden">
+            <option value="asc">Ascendente</option>
+            <option value="desc">Descendente</option>
+          </select>
+          <button id="refresh-users" class="btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"></polyline>
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
           </svg>
           <span>Actualizar</span>
-        </button>
+          </button>
+        </div>
+        <div id="users-pagination" class="pagination"></div>
         <table id="users-table">
           <thead>
             <tr>
@@ -348,7 +360,18 @@
           </div>
         </div>
 
-        <div class="toolbar">
+        <div class="toolbar list-controls" data-list="clients">
+          <input type="search" id="clients-search" placeholder="Buscar cliente" />
+          <select id="clients-sort">
+            <option value="name">Nombre</option>
+            <option value="created_at">Fecha de alta</option>
+            <option value="expires_at">Expiración</option>
+            <option value="last_used_at">Último uso</option>
+          </select>
+          <select id="clients-direction" aria-label="Dirección del orden">
+            <option value="asc">Ascendente</option>
+            <option value="desc">Descendente</option>
+          </select>
           <button id="refresh-clients" class="btn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="23 4 23 10 17 10"></polyline>
@@ -357,6 +380,7 @@
             <span>Actualizar</span>
           </button>
         </div>
+        <div id="clients-pagination" class="pagination"></div>
         <table id="clients-table">
           <thead>
             <tr>
@@ -407,7 +431,17 @@
           </div>
         </div>
 
-        <div class="toolbar">
+        <div class="toolbar list-controls" data-list="operators">
+          <input type="search" id="operators-search" placeholder="Buscar operador" />
+          <select id="operators-sort">
+            <option value="username">Nombre</option>
+            <option value="created_at">Fecha de alta</option>
+            <option value="last_login_at">Último acceso</option>
+          </select>
+          <select id="operators-direction" aria-label="Dirección del orden">
+            <option value="asc">Ascendente</option>
+            <option value="desc">Descendente</option>
+          </select>
           <button id="refresh-operators" class="btn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="23 4 23 10 17 10"></polyline>
@@ -416,6 +450,7 @@
             <span>Actualizar</span>
           </button>
         </div>
+        <div id="operators-pagination" class="pagination"></div>
         <table id="operators-table">
           <thead>
             <tr>

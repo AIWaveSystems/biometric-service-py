@@ -870,6 +870,66 @@ $("login-btn").addEventListener("click", async () => {
 });
 
 const COLS = 6;
+const listState = {
+  users: { page: 1, limit: 25 },
+  clients: { page: 1, limit: 25 },
+  operators: { page: 1, limit: 25 },
+};
+
+function listUrl(path, key) {
+  const state = listState[key];
+  const search = $(key + "-search").value.trim();
+  const query = new URLSearchParams({
+    page: state.page,
+    limit: state.limit,
+    sort_by: $(key + "-sort").value,
+    sort_dir: $(key + "-direction").value,
+  });
+  if (search) query.set("search", search);
+  return `${path}?${query}`;
+}
+
+function renderPagination(key, data, load) {
+  const target = $(key + "-pagination");
+  target.innerHTML = "";
+  if (!data || data.pages <= 1) return;
+  const previous = document.createElement("button");
+  previous.className = "btn sm";
+  previous.textContent = "Anterior";
+  previous.disabled = data.page <= 1;
+  previous.addEventListener("click", () => {
+    listState[key].page -= 1;
+    load();
+  });
+  const next = document.createElement("button");
+  next.className = "btn sm";
+  next.textContent = "Siguiente";
+  next.disabled = data.page >= data.pages;
+  next.addEventListener("click", () => {
+    listState[key].page += 1;
+    load();
+  });
+  const label = document.createElement("span");
+  label.textContent = `Página ${data.page} de ${data.pages} · ${data.total} registros`;
+  target.append(previous, label, next);
+}
+
+function setupListControls(key, load) {
+  [$(key + "-sort"), $(key + "-direction")].forEach((control) => {
+    control.addEventListener("change", () => {
+      listState[key].page = 1;
+      load();
+    });
+  });
+  const search = $(key + "-search");
+  search.addEventListener("input", () => {
+    clearTimeout(setupListControls[key]);
+    setupListControls[key] = setTimeout(() => {
+      listState[key].page = 1;
+      load();
+    }, 250);
+  });
+}
 const badge = (ok, extra) =>
   `<span class="badge ${ok ? "yes" : "no"}">${ok ? "Sí" : "No"}</span>` +
   (extra ? ` <span class="muted-inline">${extra}</span>` : "");
@@ -1274,7 +1334,8 @@ async function loadUsers() {
   const tbody = $("users-table").querySelector("tbody");
   tbody.innerHTML = `<tr><td colspan="${COLS}">Cargando…</td></tr>`;
   try {
-    const users = await api("/api/users");
+    const data = await api(listUrl("/api/users", "users"));
+    const users = data.items || data;
     tbody.innerHTML = "";
     for (const u of users) {
       const tr = document.createElement("tr");
@@ -1351,6 +1412,7 @@ async function loadUsers() {
     }
     if (!users.length)
       tbody.innerHTML = `<tr><td colspan="${COLS}">Sin usuarios registrados</td></tr>`;
+    renderPagination("users", data, loadUsers);
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="${COLS}">Error: ${e.message}</td></tr>`;
   }
@@ -1379,7 +1441,8 @@ async function loadClients() {
   const tbody = $("clients-table").querySelector("tbody");
   tbody.innerHTML = '<tr><td colspan="7">Cargando…</td></tr>';
   try {
-    const clients = await api("/api/clients");
+    const data = await api(listUrl("/api/clients", "clients"));
+    const clients = data.items || data;
     tbody.innerHTML = "";
     for (const c of clients) {
       const tr = document.createElement("tr");
@@ -1423,6 +1486,7 @@ async function loadClients() {
       tbody.appendChild(tr);
     }
     if (!clients.length) tbody.innerHTML = '<tr><td colspan="7">Sin clientes API</td></tr>';
+    renderPagination("clients", data, loadClients);
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="7">Error: ${e.message}</td></tr>`;
   }
@@ -1465,7 +1529,8 @@ async function loadOperators() {
   const tbody = $("operators-table").querySelector("tbody");
   tbody.innerHTML = '<tr><td colspan="4">Cargando…</td></tr>';
   try {
-    const ops = await api("/api/portal/users");
+    const data = await api(listUrl("/api/portal/users", "operators"));
+    const ops = data.items || data;
     tbody.innerHTML = "";
     const me = sessionStorage.getItem(PORTAL_USER_KEY);
     for (const u of ops) {
@@ -1499,10 +1564,15 @@ async function loadOperators() {
       tbody.appendChild(tr);
     }
     if (!ops.length) tbody.innerHTML = '<tr><td colspan="4">Sin operadores</td></tr>';
+    renderPagination("operators", data, loadOperators);
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="4">Error: ${e.message}</td></tr>`;
   }
 }
+
+["users", "clients", "operators"].forEach((key) => {
+  setupListControls(key, { users: loadUsers, clients: loadClients, operators: loadOperators }[key]);
+});
 
 $("refresh-operators").addEventListener("click", loadOperators);
 
