@@ -34,6 +34,29 @@ duplicados. Verifica siempre que las respuestas reportan
 `scoring: "ubm-map"` o `"embedding"`; con `gmm-z` el sistema **no está
 verificando nada fiable**.
 
+## Cuántos usuarios distintos hacen falta antes de fijar configuración
+
+Ninguna cifra de FAR/FRR significa nada por debajo de una población mínima de
+**personas distintas** matriculadas en condiciones reales de captura. Con pocos
+usuarios los cuantiles de impostor son ruido estadístico: un umbral «sugerido»
+por debajo de ese mínimo sirve solo para detectar problemas groseros (cuentas
+duplicadas), nunca para fijar la configuración de un sistema.
+
+| Módulo | Mínimo para pruebas | Base recomendada para producción | Medición |
+| --- | --- | --- | --- |
+| Voz | 3 personas reales distintas | 10 o más, con micrófonos y ambiente de producción | `diagnose_voice_db.py`, `calibrate_voice.py` |
+| Rostro | 10 personas distintas | 15-30; repetir la medición cada vez que crezca la base | `calibrate_face_db.py` |
+| Desafío de dígitos | 1 persona valida su propia matrícula | Igual: es por usuario, no poblacional | `test_digits.py`, `test_challenge_api.py` |
+| Parpadeo (liveness) | No depende de la población | Igual | `test_liveness.py` |
+
+Mientras un módulo esté por debajo del mínimo:
+
+- Trata su verificación como ayuda al segundo intento, nunca como factor único.
+- Usa la banda `borderline` del login facial para pedir repetición en lugar de
+  subir el umbral global (subirlo castiga a los genuinos con la muestra corta).
+- Mide de nuevo al incorporar usuarios: los números se estabilizan con la
+  población, no con el tiempo.
+
 ## El login facial también exige validación y ajuste propio
 
 Igual que la voz, el rostro se calibró con una muestra mínima: 14 fotos reales de

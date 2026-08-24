@@ -1383,7 +1383,27 @@ Los scripts que las produjeron (`bench_face.py`, `bench_metrics.py`,
 sola persona y los de voz con locutores sintéticos. Antes de usar el servicio con
 un grupo real de personas hay que recalibrar.
 
+**Población mínima.** Con menos de ~15 personas distintas matriculadas, los
+cuantiles de impostor del rostro son ruido: las cifras sirven para detectar
+cuentas duplicadas, no para fijar `FACE_THRESHOLD`. La voz necesita al menos 3
+personas reales. Vuelve a medir cada vez que la base crezca: los números se
+estabilizan con la población, no con el tiempo.
+
 ### Rostro
+
+La vía principal usa las plantillas ya guardadas en la base, sin capturar nada:
+
+```bash
+python scripts/calibrate_face_db.py                        # distribuciones, EER, umbral por FAR objetivo
+python scripts/calibrate_face_db.py --excluir-sospechosos  # recalcula sin pares sospechosos de cuentas gemelas
+```
+
+El script lista además los pares impostores más altos entre usuarios distintos:
+casi siempre es la misma persona matriculada dos veces, y esa contaminación
+invalida el resto de cifras hasta corregirla (ver
+[Limitaciones conocidas](#limitaciones-conocidas)).
+
+Para condiciones controladas (luz baja, distancia, otra cámara) usa carpetas:
 
 ```bash
 python scripts/calibrate_face.py datos_cara          # usa FACE_THRESHOLD del .env
