@@ -9,6 +9,7 @@ from ..biometrics.face import detector, embedder, liveness, quality
 from ..config import settings
 from ..database import get_db
 from ..models import FaceTemplate, User
+from ..ownership import api_client_id, scope_user_query
 from ..schemas import (
     FaceIdentifyResponse,
     FaceLoginResponse,
@@ -48,8 +49,11 @@ def _best_similarity(features: np.ndarray, templates: list[FaceTemplate]) -> flo
     return max(best, 0.0)
 
 
-def _get_user(db: Session, username: str) -> User:
-    user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+def _get_user(db: Session, username: str, request: Request | None = None) -> User:
+    query = select(User).where(User.username == username)
+    if request is not None:
+        query = scope_user_query(query, request, User)
+    user = db.execute(query).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return user
@@ -67,12 +71,14 @@ def _templates_or_404(user: User) -> list[FaceTemplate]:
 
 @router.post("/register", response_model=FaceRegisterResponse)
 def register(
+    request: Request,
     username: str = Form(..., min_length=3, max_length=100),
     password: str | None = Form(default=None, min_length=6, max_length=128),
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    existing = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+    existing_query = scope_user_query(select(User).where(User.username == username), request, User)
+    existing = db.execute(existing_query).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
@@ -83,10 +89,11 @@ def register(
 
         user = User(
             username=username,
+            api_client_id=api_client_id(request),
             password_hash=CryptContext(schemes=["bcrypt"], deprecated="auto").hash(password),
         )
     else:
-        user = User(username=username)
+        user = User(username=username, api_client_id=api_client_id(request))
 
     db.add(user)
     try:
@@ -108,11 +115,12 @@ def register(
 
 @router.post("/verify", response_model=FaceVerifyResponse)
 def verify(
+    request: Request,
     username: str = Form(...),
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     templates = _templates_or_404(user)
     features = _embedding_from_bytes(image.file.read())
     best = _best_similarity(features, templates)
@@ -135,7 +143,7 @@ def login(
     db: Session = Depends(get_db),
 ):
     check_biometric_rate(request, "face", username)
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     templates = _templates_or_404(user)
     if not frames:
         raise HTTPException(status_code=400, detail="Se requiere al menos un frame")
@@ -235,14 +243,16 @@ def login(
 
 
 @router.post("/identify", response_model=FaceIdentifyResponse)
-def identify(image: UploadFile = File(...), db: Session = Depends(get_db)):
+def identify(request: Request, image: UploadFile = File(...), db: Session = Depends(get_db)):
     features = _embedding_from_bytes(image.file.read())
 
-    rows = db.execute(
+    query = (
         select(User.username, User.uuid, FaceTemplate.features)
         .join(FaceTemplate, FaceTemplate.user_id == User.id)
         .where(FaceTemplate.algorithm == ALGORITHM)
-    ).all()
+    )
+    query = scope_user_query(query, request, User)
+    rows = db.execute(query).all()
     if not rows:
         raise HTTPException(status_code=404, detail="No hay usuarios registrados")
 
@@ -265,19 +275,21 @@ def identify(image: UploadFile = File(...), db: Session = Depends(get_db)):
 
 
 @router.get("/templates")
-def list_templates(db: Session = Depends(get_db)):
-    rows = db.execute(
-        select(User.username, FaceTemplate.algorithm, FaceTemplate.id).join(
-            FaceTemplate, FaceTemplate.user_id == User.id
-        )
-    ).all()
+def list_templates(request: Request, db: Session = Depends(get_db)):
+    query = select(User.username, FaceTemplate.algorithm, FaceTemplate.id).join(
+        FaceTemplate, FaceTemplate.user_id == User.id
+    )
+    rows = db.execute(scope_user_query(query, request, User)).all()
     return [{"id": r.id, "username": r.username, "algorithm": r.algorithm} for r in rows]
 
 
 @router.delete("/templates/{template_id}")
-def delete_template(template_id: int, db: Session = Depends(get_db)):
+def delete_template(template_id: int, request: Request, db: Session = Depends(get_db)):
     tpl = db.get(FaceTemplate, template_id)
-    if tpl is None:
+    if tpl is None or (
+        api_client_id(request) is not None
+        and tpl.user.api_client_id != api_client_id(request)
+    ):
         raise HTTPException(status_code=404, detail="Plantilla no encontrada")
     db.delete(tpl)
     db.commit()

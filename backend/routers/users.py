@@ -1,5 +1,5 @@
 import numpy as np
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +9,7 @@ from ..biometrics.face import detector, embedder, quality
 from ..config import settings
 from ..database import get_db
 from ..models import FaceTemplate, User
+from ..ownership import api_client_id, scope_user_query
 from ..schemas import PaginationParams, UserResponse, VoiceRegisterResponse
 from ..utils.pagination import paginate, paginated_response
 from .voice import build_template, find_duplicate_voice
@@ -38,11 +39,17 @@ def _user_response(u: User) -> UserResponse:
         digits=digits,
         digits_challenge_ready=len(digits) >= _DIGIT_MIN and cmvn_ok,
         digits_cmvn_ok=cmvn_ok,
+        owner=(
+            {"name": u.api_client.name, "key_prefix": u.api_client.key_prefix}
+            if u.api_client is not None
+            else None
+        ),
     )
 
 
 @router.post("/register")
 def register(
+    request: Request,
     username: str = Form(..., min_length=3, max_length=100),
     password: str | None = Form(default=None, min_length=6, max_length=128),
     image: UploadFile | None = File(default=None),
@@ -50,7 +57,8 @@ def register(
     audio: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
 ):
-    existing = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+    existing_query = scope_user_query(select(User).where(User.username == username), request, User)
+    existing = db.execute(existing_query).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
@@ -60,7 +68,11 @@ def register(
             status_code=400, detail="Se requiere al menos una biometria o una contrasena"
         )
 
-    user = User(username=username, password_hash=pwd.hash(password) if password else None)
+    user = User(
+        username=username,
+        api_client_id=api_client_id(request),
+        password_hash=pwd.hash(password) if password else None,
+    )
     db.add(user)
     try:
         db.flush()
@@ -107,7 +119,9 @@ def register(
     if audio is not None:
         template, n_components, duration, n_frames = build_template(user.id, audio.file.read())
 
-        duplicado = find_duplicate_voice(db, template.embedding, user.id)
+        duplicado = find_duplicate_voice(
+            db, template.embedding, user.id, api_client_id(request)
+        )
         if duplicado is not None and settings.voice_reject_duplicates:
             db.rollback()
             raise HTTPException(
@@ -175,15 +189,19 @@ def list_users(
 
 
 @router.get("/by-uuid/{user_uuid}", response_model=UserResponse)
-def get_by_uuid(user_uuid: str, db: Session = Depends(get_db)):
-    user = db.execute(select(User).where(User.uuid == user_uuid)).scalar_one_or_none()
+def get_by_uuid(user_uuid: str, request: Request, db: Session = Depends(get_db)):
+    query = scope_user_query(select(User).where(User.uuid == user_uuid), request, User)
+    user = db.execute(query).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return _user_response(user)
 
 
-def _get_user(db: Session, username: str) -> User:
-    user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+def _get_user(db: Session, username: str, request: Request | None = None) -> User:
+    query = select(User).where(User.username == username)
+    if request is not None:
+        query = scope_user_query(query, request, User)
+    user = db.execute(query).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return user
@@ -191,12 +209,13 @@ def _get_user(db: Session, username: str) -> User:
 
 @router.post("/{username}/faces")
 def add_faces(
+    request: Request,
     username: str,
     image: UploadFile | None = File(default=None),
     images: list[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
 ):
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     uploads = ([image] if image is not None else []) + list(images)
     if not uploads:
         raise HTTPException(status_code=400, detail="No se envio ninguna imagen")
@@ -253,11 +272,12 @@ def add_faces(
 
 @router.post("/{username}/password")
 def set_password(
+    request: Request,
     username: str,
     password: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     if password is not None and password != "" and len(password) < 6:
         raise HTTPException(status_code=400, detail="La contrasena debe tener 6 caracteres o mas")
 
@@ -268,11 +288,12 @@ def set_password(
 
 @router.post("/{username}/rename")
 def rename_user(
+    request: Request,
     username: str,
     new_username: str = Form(..., min_length=3, max_length=100),
     db: Session = Depends(get_db),
 ):
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     if new_username == username:
         raise HTTPException(status_code=400, detail="El nombre nuevo es el mismo")
 
@@ -287,11 +308,60 @@ def rename_user(
 
 
 @router.delete("/{username}")
-def delete_user(username: str, db: Session = Depends(get_db)):
-    user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+def delete_user(username: str, request: Request, db: Session = Depends(get_db)):
+    query = scope_user_query(select(User).where(User.username == username), request, User)
+    user = db.execute(query).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     deleted_uuid = str(user.uuid)
     db.delete(user)
     db.commit()
     return {"deleted": username, "uuid": deleted_uuid}
+
+
+def _get_user_by_uuid(db: Session, user_uuid: str, request: Request) -> User:
+    query = scope_user_query(select(User).where(User.uuid == user_uuid), request, User)
+    user = db.execute(query).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return user
+
+
+@router.post("/by-uuid/{user_uuid}/faces")
+def add_faces_by_uuid(
+    user_uuid: str,
+    request: Request,
+    image: UploadFile | None = File(default=None),
+    images: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_by_uuid(db, user_uuid, request)
+    return add_faces(user.username, request, image, images, db)
+
+
+@router.post("/by-uuid/{user_uuid}/password")
+def set_password_by_uuid(
+    user_uuid: str,
+    request: Request,
+    password: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_by_uuid(db, user_uuid, request)
+    return set_password(user.username, request, password, db)
+
+
+@router.post("/by-uuid/{user_uuid}/rename")
+def rename_user_by_uuid(
+    user_uuid: str,
+    request: Request,
+    new_username: str = Form(..., min_length=3, max_length=100),
+    db: Session = Depends(get_db),
+):
+    user = _get_user_by_uuid(db, user_uuid, request)
+    return rename_user(user.username, request, new_username, db)
+
+
+@router.delete("/by-uuid/{user_uuid}")
+def delete_user_by_uuid(user_uuid: str, request: Request, db: Session = Depends(get_db)):
+    user = _get_user_by_uuid(db, user_uuid, request)
+    return delete_user(user.username, request, db)

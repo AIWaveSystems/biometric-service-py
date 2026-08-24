@@ -135,6 +135,7 @@ class UserResponse(BaseModel):
     digits: list[str] = []
     digits_challenge_ready: bool = False
     digits_cmvn_ok: bool = False
+    owner: dict | None = None
 
 
 class FaceRegisterRequest(BaseModel):

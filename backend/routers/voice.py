@@ -10,6 +10,7 @@ from ..biometrics.voice import embedder, pipeline
 from ..config import settings
 from ..database import get_db
 from ..models import User, VoiceDigitTemplate, VoiceTemplate
+from ..ownership import api_client_id, scope_user_query
 from ..schemas import (
     VoiceChallengeResponse,
     VoiceChallengeVerifyResponse,
@@ -25,31 +26,41 @@ FEATURE_DIM = 39
 MIN_BACKGROUND_SPEAKERS = 2
 
 
-def _get_user(db: Session, username: str) -> User:
-    user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+def _get_user(db: Session, username: str, request: Request | None = None) -> User:
+    query = select(User).where(User.username == username)
+    if request is not None:
+        query = scope_user_query(query, request, User)
+    user = db.execute(query).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return user
 
 
-def _background_templates(db: Session, exclude_user_id: int) -> list[VoiceTemplate]:
-    return list(
-        db.execute(select(VoiceTemplate).where(VoiceTemplate.user_id != exclude_user_id))
-        .scalars()
-        .all()
+def _background_templates(
+    db: Session, exclude_user_id: int, client_id: int | None = None
+) -> list[VoiceTemplate]:
+    query = select(VoiceTemplate).join(User, User.id == VoiceTemplate.user_id).where(
+        VoiceTemplate.user_id != exclude_user_id
     )
+    if client_id is not None:
+        query = query.where(User.api_client_id == client_id)
+    return list(db.execute(query).scalars().all())
 
 
 def _unpack(template: VoiceTemplate) -> np.ndarray:
     return np.frombuffer(template.features, dtype=np.float32).reshape(-1, FEATURE_DIM)
 
 
-def _cohort_features(db: Session, exclude_user_id: int) -> list[np.ndarray]:
-    return [_unpack(t) for t in _background_templates(db, exclude_user_id)]
+def _cohort_features(
+    db: Session, exclude_user_id: int, client_id: int | None = None
+) -> list[np.ndarray]:
+    return [_unpack(t) for t in _background_templates(db, exclude_user_id, client_id)]
 
 
-def _background_ubm(db: Session, exclude_user_id: int) -> tuple[object, int]:
-    rows = _background_templates(db, exclude_user_id)
+def _background_ubm(
+    db: Session, exclude_user_id: int, client_id: int | None = None
+) -> tuple[object, int]:
+    rows = _background_templates(db, exclude_user_id, client_id)
     speakers = {t.user_id for t in rows}
     if len(speakers) < MIN_BACKGROUND_SPEAKERS:
         return None, len(speakers)
@@ -79,7 +90,9 @@ def _stored_embedding(blob: bytes | None) -> np.ndarray | None:
     return np.frombuffer(blob, dtype=np.float32)
 
 
-def _enrolled_embeddings(db: Session, exclude_user_id: int | None) -> list[tuple[str, np.ndarray]]:
+def _enrolled_embeddings(
+    db: Session, exclude_user_id: int | None, client_id: int | None = None
+) -> list[tuple[str, np.ndarray]]:
     query = (
         select(User.username, VoiceTemplate.embedding)
         .join(VoiceTemplate, VoiceTemplate.user_id == User.id)
@@ -87,6 +100,8 @@ def _enrolled_embeddings(db: Session, exclude_user_id: int | None) -> list[tuple
     )
     if exclude_user_id is not None:
         query = query.where(VoiceTemplate.user_id != exclude_user_id)
+    if client_id is not None:
+        query = query.where(User.api_client_id == client_id)
     salida = []
     for nombre, blob in db.execute(query).all():
         vector = _stored_embedding(blob)
@@ -96,13 +111,16 @@ def _enrolled_embeddings(db: Session, exclude_user_id: int | None) -> list[tuple
 
 
 def find_duplicate_voice(
-    db: Session, embedding: bytes | None, exclude_user_id: int | None
+    db: Session,
+    embedding: bytes | None,
+    exclude_user_id: int | None,
+    client_id: int | None = None,
 ) -> tuple[str, float] | None:
     probe = _stored_embedding(embedding)
     if probe is None:
         return None
     mejor: tuple[str, float] | None = None
-    for nombre, referencia in _enrolled_embeddings(db, exclude_user_id):
+    for nombre, referencia in _enrolled_embeddings(db, exclude_user_id, client_id):
         score = embedder.similarity(probe, referencia)
         if mejor is None or score > mejor[1]:
             mejor = (nombre, score)
@@ -130,14 +148,15 @@ def build_template(user_id: int, data: bytes) -> tuple[VoiceTemplate, int, float
 
 @router.post("/register", response_model=VoiceRegisterResponse)
 def register(
+    request: Request,
     username: str = Form(...),
     audio: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     template, n_components, duration, n_frames = build_template(user.id, audio.file.read())
 
-    duplicado = find_duplicate_voice(db, template.embedding, user.id)
+    duplicado = find_duplicate_voice(db, template.embedding, user.id, api_client_id(request))
     if duplicado is not None and settings.voice_reject_duplicates:
         db.rollback()
         raise HTTPException(
@@ -184,7 +203,7 @@ def verify(
     db: Session = Depends(get_db),
 ):
     check_biometric_rate(request, "voice", username)
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     tpl = (user.voice_templates or [None])[0]
     if tpl is None:
         raise HTTPException(status_code=404, detail="El usuario no tiene plantilla de voz")
@@ -224,7 +243,7 @@ def verify(
             reason=None if verified else "La voz no coincide con la plantilla registrada.",
         )
 
-    ubm, n_background = _background_ubm(db, tpl.user_id)
+    ubm, n_background = _background_ubm(db, tpl.user_id, api_client_id(request))
 
     if ubm is not None:
         target = ubm.map_adapt(_unpack(tpl), relevance=pipeline.MAP_RELEVANCE)
@@ -250,7 +269,9 @@ def verify(
         )
 
     target = pipeline.deserialize_gmm(tpl.parameters)
-    cohort = pipeline.voice_service.cohort_gmm(_cohort_features(db, tpl.user_id))
+    cohort = pipeline.voice_service.cohort_gmm(
+        _cohort_features(db, tpl.user_id, api_client_id(request))
+    )
     margin, z, ratio, used_cohort = pipeline.voice_service.verify(
         target, tpl.self_score, tpl.self_sigma, cohort, feat
     )
@@ -286,7 +307,11 @@ def verify(
 
 
 def _score_identity(
-    db: Session, tpl: VoiceTemplate, feat: np.ndarray, raw: bytes | None = None
+    db: Session,
+    tpl: VoiceTemplate,
+    feat: np.ndarray,
+    raw: bytes | None = None,
+    client_id: int | None = None,
 ) -> tuple[bool, float, str, int]:
     referencia = _stored_embedding(tpl.embedding)
     if referencia is not None and embedder.available() and raw is not None:
@@ -298,14 +323,14 @@ def _score_identity(
             score = embedder.similarity(probe, referencia)
             return score >= settings.voice_embedding_threshold, score, "embedding", 0
 
-    ubm, n_background = _background_ubm(db, tpl.user_id)
+    ubm, n_background = _background_ubm(db, tpl.user_id, client_id)
     if ubm is not None:
         target = ubm.map_adapt(_unpack(tpl), relevance=pipeline.MAP_RELEVANCE)
         llr = pipeline.voice_service.verify_ubm(target, ubm, feat)
         return llr >= settings.voice_llr_threshold, llr, "ubm-map", n_background
 
     target = pipeline.deserialize_gmm(tpl.parameters)
-    cohort = pipeline.voice_service.cohort_gmm(_cohort_features(db, tpl.user_id))
+    cohort = pipeline.voice_service.cohort_gmm(_cohort_features(db, tpl.user_id, client_id))
     _, z, ratio, _ = pipeline.voice_service.verify(
         target, tpl.self_score, tpl.self_sigma, cohort, feat
     )
@@ -323,12 +348,13 @@ def _digit_models(user: User) -> tuple[dict[str, object], tuple | None]:
 
 @router.post("/digits/enroll", response_model=VoiceDigitEnrollResponse)
 def enroll_digits(
+    request: Request,
     username: str = Form(...),
     digits: str = Form(",".join(pipeline.DIGITS)),
     audio: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     wanted = [d.strip() for d in digits.split(",") if d.strip()]
     if not wanted or any(d not in pipeline.DIGITS for d in wanted):
         raise HTTPException(status_code=400, detail="Lista de digitos invalida (usa 0..9)")
@@ -397,8 +423,8 @@ def enroll_digits(
 
 
 @router.get("/digits/{username}")
-def digit_status(username: str, db: Session = Depends(get_db)):
-    user = _get_user(db, username)
+def digit_status(username: str, request: Request, db: Session = Depends(get_db)):
+    user = _get_user(db, username, request)
     enrolled = sorted(t.digit for t in user.digit_templates)
     cmvn_ok = bool(user.digit_templates) and all(t.cmvn for t in user.digit_templates)
     needed = settings.voice_challenge_digits + 1
@@ -413,15 +439,17 @@ def digit_status(username: str, db: Session = Depends(get_db)):
 
 
 @router.get("/system")
-def voice_system(db: Session = Depends(get_db)):
+def voice_system(request: Request, db: Session = Depends(get_db)):
+    voice_users_query = select(func.count(func.distinct(VoiceTemplate.user_id))).join(
+        User, User.id == VoiceTemplate.user_id
+    )
+    embedding_query = voice_users_query.where(
+        func.length(VoiceTemplate.embedding) == embedder.EMBEDDING_DIM * 4
+    )
     n_voice_users = db.execute(
-        select(func.count(func.distinct(VoiceTemplate.user_id)))
+        scope_user_query(voice_users_query, request, User)
     ).scalar_one()
-    n_embedding = db.execute(
-        select(func.count(func.distinct(VoiceTemplate.user_id))).where(
-            func.length(VoiceTemplate.embedding) == embedder.EMBEDDING_DIM * 4
-        )
-    ).scalar_one()
+    n_embedding = db.execute(scope_user_query(embedding_query, request, User)).scalar_one()
     modelo = embedder.available()
     ubm_min_users = MIN_BACKGROUND_SPEAKERS + 1
     sin_embedding = n_voice_users - n_embedding
@@ -451,8 +479,8 @@ def voice_system(db: Session = Depends(get_db)):
 
 
 @router.delete("/digits/{username}")
-def delete_digits(username: str, db: Session = Depends(get_db)):
-    user = _get_user(db, username)
+def delete_digits(username: str, request: Request, db: Session = Depends(get_db)):
+    user = _get_user(db, username, request)
     removed = len(user.digit_templates)
     for template in list(user.digit_templates):
         db.delete(template)
@@ -467,7 +495,7 @@ def create_challenge(
     db: Session = Depends(get_db),
 ):
     check_biometric_rate(request, "voice-challenge", username)
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     if not user.voice_templates:
         raise HTTPException(status_code=404, detail="El usuario no tiene plantilla de voz")
 
@@ -523,7 +551,7 @@ def verify_challenge(
             detail="Desafio invalido, caducado o ya usado. Pide uno nuevo.",
         )
 
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     tpl = (user.voice_templates or [None])[0]
     if tpl is None:
         raise HTTPException(status_code=404, detail="El usuario no tiene plantilla de voz")
@@ -555,7 +583,9 @@ def verify_challenge(
         raise HTTPException(status_code=400, detail=str(e))
     segments, _ = pipeline.split_utterance(x, stats)
 
-    identity_ok, score, scoring, n_background = _score_identity(db, tpl, feat, data)
+    identity_ok, score, scoring, n_background = _score_identity(
+        db, tpl, feat, data, api_client_id(request)
+    )
 
     recognised: list[str] = []
     margins: list[float] = []
@@ -619,7 +649,7 @@ def verify_challenge(
 
 
 @router.post("/identify")
-def identify(audio: UploadFile = File(...), db: Session = Depends(get_db)):
+def identify(request: Request, audio: UploadFile = File(...), db: Session = Depends(get_db)):
     if not embedder.available():
         raise HTTPException(status_code=503, detail="El modelo de locutor no esta descargado")
     data = audio.file.read()
@@ -629,7 +659,10 @@ def identify(audio: UploadFile = File(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e))
 
     puntuados = sorted(
-        ((nombre, embedder.similarity(probe, ref)) for nombre, ref in _enrolled_embeddings(db, None)),
+        (
+            (nombre, embedder.similarity(probe, ref))
+            for nombre, ref in _enrolled_embeddings(db, None, api_client_id(request))
+        ),
         key=lambda kv: kv[1],
         reverse=True,
     )
@@ -646,15 +679,16 @@ def identify(audio: UploadFile = File(...), db: Session = Depends(get_db)):
 
 
 @router.get("/templates")
-def list_templates(db: Session = Depends(get_db)):
-    rows = db.execute(
+def list_templates(request: Request, db: Session = Depends(get_db)):
+    query = (
         select(
             User.username,
             VoiceTemplate.id,
             VoiceTemplate.n_components,
             VoiceTemplate.duration_seconds,
         ).join(VoiceTemplate, VoiceTemplate.user_id == User.id)
-    ).all()
+    )
+    rows = db.execute(scope_user_query(query, request, User)).all()
     return [
         {
             "id": r.id,
@@ -667,9 +701,12 @@ def list_templates(db: Session = Depends(get_db)):
 
 
 @router.delete("/templates/{template_id}")
-def delete_template(template_id: int, db: Session = Depends(get_db)):
+def delete_template(template_id: int, request: Request, db: Session = Depends(get_db)):
     tpl = db.get(VoiceTemplate, template_id)
-    if tpl is None:
+    if tpl is None or (
+        api_client_id(request) is not None
+        and tpl.user.api_client_id != api_client_id(request)
+    ):
         raise HTTPException(status_code=404, detail="Plantilla no encontrada")
     db.delete(tpl)
     db.commit()
