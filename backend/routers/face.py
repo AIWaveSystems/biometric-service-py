@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
@@ -22,6 +23,8 @@ router = APIRouter(prefix="/api/face", tags=["face"])
 
 ALGORITHM = "sface"
 MIN_DETECTION_CONFIDENCE = 0.7
+THUMB_SIZE = (64, 64)
+DUP_MEAN_ABS = 1.5
 
 
 def _embedding_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarray:
@@ -50,6 +53,14 @@ def _best_similarity(features: np.ndarray, templates: list[FaceTemplate]) -> flo
             continue
         best = max(best, embedder.similarity(features, ref))
     return max(best, 0.0)
+
+
+def _duplicate(thumb: np.ndarray, thumbs: list[np.ndarray]) -> bool:
+    probe = thumb.astype(np.int16)
+    return any(
+        float(np.abs(probe - other.astype(np.int16)).mean()) < DUP_MEAN_ABS
+        for other in thumbs
+    )
 
 
 def _get_user(db: Session, username: str, request: Request | None = None) -> User:
@@ -199,7 +210,17 @@ def login(
             detail="No se detecto la cara en suficientes frames. Asegurate de mirar a la camara.",
         )
     moved = result["moved"]
-    features = [embedder.embed(img, face) for idx, img, face in candidates if not moved[idx]]
+    thumbs: list[np.ndarray] = []
+    features: list[np.ndarray] = []
+    for idx, img, face in candidates:
+        if moved[idx]:
+            continue
+        rect = embedder.face_rect(face, img.shape)
+        thumb = cv2.resize(detector.raw_face(img, rect), THUMB_SIZE)
+        if _duplicate(thumb, thumbs):
+            continue
+        thumbs.append(thumb)
+        features.append(embedder.embed(img, face))
     if not features:
         if result["n_moved"]:
             raise HTTPException(
