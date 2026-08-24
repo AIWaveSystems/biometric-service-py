@@ -153,6 +153,11 @@ POST /api/users/{username}/faces
 | `image` | archivo | Una foto |
 | `images` | archivo[] | Varias fotos |
 
+!!! warning "Formatos aceptados"
+    Solo **JPG** y **PNG**. Los archivos en otros formatos (HEIC/HEIF de iPhone, AVIF,
+    WEBP) no se pueden decodificar y se ignoran; si ninguna foto se puede leer la
+    respuesta es **400**.
+
 Las plantillas se **acumulan**: no borra las anteriores. Cada foto pasa por tres filtros
 antes de guardarse.
 
@@ -174,12 +179,13 @@ flowchart LR
   "added": 4,
   "redundant": 2,
   "without_face": 1,
+  "unreadable": 0,
   "total_templates": 9
 }
 ```
 
 Si `added` es 0 la respuesta es **400** con el motivo concreto: problema de calidad, todas
-redundantes, o ninguna cara detectada.
+redundantes, ninguna cara detectada, o ninguna imagen legible (formato no soportado).
 
 !!! tip "Cuantas fotos"
     Entre 8 y 12 plantillas por persona, variando gesto, angulo, gafas e iluminacion.

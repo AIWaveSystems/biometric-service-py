@@ -37,6 +37,10 @@ POST /api/face/register
 | `password` | texto | no | 6 a 128 caracteres |
 | `image` | archivo | si | Una foto |
 
+!!! note "Formatos aceptados"
+    Solo **JPG** y **PNG** (tambien en `/verify`, `/login` y al anadir fotos a un usuario).
+    HEIC/HEIF de iPhone o AVIF no se pueden decodificar: convierte la foto antes.
+
 Crea el usuario **y** su primera plantilla. Si el usuario ya existe devuelve 409: para
 anadir caras a alguien existente usa
 [`POST /api/users/{username}/faces`](usuarios.md#anadir-fotos-a-un-usuario-existente).

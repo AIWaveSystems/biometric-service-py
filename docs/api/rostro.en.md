@@ -37,6 +37,10 @@ POST /api/face/register
 | `password` | text | no | 6 to 128 characters |
 | `image` | file | yes | One photo |
 
+!!! note "Accepted formats"
+    **JPG** and **PNG** only (same for `/verify`, `/login` and when adding photos to a
+    user). iPhone HEIC/HEIF or AVIF files cannot be decoded: convert the photo first.
+
 Creates the user **and** their first template. If the user already exists it returns 409:
 to add faces to an existing person use
 [`POST /api/users/{username}/faces`](usuarios.md#add-photos-to-an-existing-user).

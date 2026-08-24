@@ -153,6 +153,10 @@ POST /api/users/{username}/faces
 | `image` | file | One photo |
 | `images` | file[] | Several photos |
 
+!!! warning "Accepted formats"
+    **JPG** and **PNG** only. Files in other formats (iPhone HEIC/HEIF, AVIF, WEBP)
+    cannot be decoded and are ignored; if no photo can be read the response is **400**.
+
 Templates **accumulate**: earlier ones are not deleted. Each photo passes three filters
 before being stored.
 
@@ -174,12 +178,13 @@ flowchart LR
   "added": 4,
   "redundant": 2,
   "without_face": 1,
+  "unreadable": 0,
   "total_templates": 9
 }
 ```
 
 If `added` is 0 the response is **400** with the specific reason: a quality problem, all
-redundant, or no face detected.
+redundant, no face detected, or no readable image (unsupported format).
 
 !!! tip "How many photos"
     Between 8 and 12 templates per person, varying expression, angle, glasses and lighting.
