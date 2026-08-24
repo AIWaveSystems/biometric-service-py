@@ -63,6 +63,13 @@ def _duplicate(thumb: np.ndarray, thumbs: list[np.ndarray]) -> bool:
     )
 
 
+def _core_similarity(sims: list[float]) -> float:
+    if not sims:
+        return 0.0
+    top_half = sims[: (len(sims) + 1) // 2]
+    return float(np.median(top_half))
+
+
 def _get_user(db: Session, username: str, request: Request | None = None) -> User:
     query = select(User).where(User.username == username)
     if request is not None:
@@ -240,9 +247,11 @@ def login(
             detail="Captura repetida detectada. Vuelve a grabar el parpadeo.",
         )
 
-    best = max((_best_similarity(f, templates) for f in features), default=0.0)
+    sims = sorted((_best_similarity(f, templates) for f in features), reverse=True)
+    best = sims[0]
+    core = _core_similarity(sims)
     blink = result["blink_detected"]
-    match = best >= settings.face_threshold
+    match = core >= settings.face_threshold
     verified = blink and match
 
     reason = None
