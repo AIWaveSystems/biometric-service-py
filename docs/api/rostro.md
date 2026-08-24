@@ -63,6 +63,7 @@ POST /api/face/verify
 | Campo | Descripcion |
 | --- | --- |
 | `username` | A quien se compara |
+| `user_uuid` | Opcional. UUID del usuario, para desambiguar cuando el nombre existe en varios sistemas (solo portal) |
 | `image` | Una sola foto |
 
 ```json
@@ -93,6 +94,7 @@ POST /api/face/login
 | Campo | Tipo | Descripcion |
 | --- | --- | --- |
 | `username` | texto | A quien se compara |
+| `user_uuid` | texto | Opcional. Mismo criterio que en `verify` |
 | `frames` | archivo[] | Rafaga de imagenes, campo repetido |
 
 Se necesitan al menos `LIVENESS_MIN_FACES` frames (6 por defecto). El portal captura unos

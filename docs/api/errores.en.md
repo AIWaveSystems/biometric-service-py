@@ -119,6 +119,7 @@ the enrolment is missing.
 | Message | Cause | Retryable? |
 | --- | --- | --- |
 | *El usuario ya existe* | Name taken | No, choose another |
+| *Ese nombre de usuario existe en varios sistemas cliente...* | Same name in several webs, request from the portal | Yes, sending `user_uuid` |
 | *Ya existe un usuario con ese nombre* | Renamed to a taken one | No |
 | *Ya existe un cliente con ese nombre* | Client name taken | No |
 | *Ya existe un usuario de portal con ese nombre* | Duplicate operator | No |

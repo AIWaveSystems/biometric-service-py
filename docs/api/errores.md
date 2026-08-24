@@ -119,6 +119,7 @@ existe, le falta la matricula.
 | Mensaje | Causa | Se puede reintentar? |
 | --- | --- | --- |
 | *El usuario ya existe* | Nombre ocupado | No, elegir otro |
+| *Ese nombre de usuario existe en varios sistemas cliente...* | Mismo nombre en varias webs, peticion desde el portal | Si, enviando `user_uuid` |
 | *Ya existe un usuario con ese nombre* | Renombrado a uno ocupado | No |
 | *Ya existe un cliente con ese nombre* | Nombre de cliente ocupado | No |
 | *Ya existe un usuario de portal con ese nombre* | Operador duplicado | No |

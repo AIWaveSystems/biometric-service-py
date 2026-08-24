@@ -106,6 +106,7 @@ POST /api/voice/verify
 | Field | Description |
 | --- | --- |
 | `username` | Who to compare against |
+| `user_uuid` | Optional. User UUID, to disambiguate when the name exists in several systems (portal only) |
 | `audio` | WAV to verify |
 
 ```json
@@ -257,6 +258,7 @@ POST /api/voice/challenge
 | Field | Description |
 | --- | --- |
 | `username` | Who wants to sign in |
+| `user_uuid` | Optional. Same rule as `verify` |
 
 ```json
 {
@@ -288,6 +290,7 @@ POST /api/voice/challenge/verify
 | Field | Description |
 | --- | --- |
 | `username` | The same one from the challenge |
+| `user_uuid` | Optional. Same rule as `verify` |
 | `challenge_id` | The token received |
 | `audio` | WAV with the requested digits |
 

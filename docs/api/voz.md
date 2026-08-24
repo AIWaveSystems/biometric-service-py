@@ -107,6 +107,7 @@ POST /api/voice/verify
 | Campo | Descripcion |
 | --- | --- |
 | `username` | A quien se compara |
+| `user_uuid` | Opcional. UUID del usuario, para desambiguar cuando el nombre existe en varios sistemas (solo portal) |
 | `audio` | WAV a verificar |
 
 ```json
@@ -258,6 +259,7 @@ POST /api/voice/challenge
 | Campo | Descripcion |
 | --- | --- |
 | `username` | Quien quiere entrar |
+| `user_uuid` | Opcional. Mismo criterio que en `verify` |
 
 ```json
 {
@@ -289,6 +291,7 @@ POST /api/voice/challenge/verify
 | Campo | Descripcion |
 | --- | --- |
 | `username` | El mismo del desafio |
+| `user_uuid` | Opcional. Mismo criterio que en `verify` |
 | `challenge_id` | El token recibido |
 | `audio` | WAV con los digitos pedidos |
 

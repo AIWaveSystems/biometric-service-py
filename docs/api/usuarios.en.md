@@ -92,6 +92,17 @@ GET /api/users
 Returns an array with the same object as `register`, one per user. Useful for populating an
 administration panel.
 
+Accepts the common listing parameters (`page`, `limit`, `search`, `sort_by`, `sort_dir`)
+plus:
+
+| Parameter | Values | Effect |
+| --- | --- | --- |
+| `owner` | *(empty)* | All systems |
+| `owner` | `portal` | Only users created from the portal |
+| `owner` | API client UUID | Only users of that system |
+
+An invalid `owner` returns **400**.
+
 ```json
 [
   {
