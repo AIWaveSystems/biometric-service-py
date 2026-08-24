@@ -25,6 +25,7 @@ ALGORITHM = "sface"
 MIN_DETECTION_CONFIDENCE = 0.7
 THUMB_SIZE = (64, 64)
 DUP_MEAN_ABS = 1.5
+BORDERLINE_MARGIN = 0.03
 
 
 def _embedding_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarray:
@@ -251,7 +252,9 @@ def login(
     best = sims[0]
     core = _core_similarity(sims)
     blink = result["blink_detected"]
-    match = core >= settings.face_threshold
+    threshold = settings.face_threshold
+    match = core >= threshold
+    borderline = blink and not match and core >= threshold - BORDERLINE_MARGIN
     verified = blink and match
 
     reason = None
@@ -268,6 +271,11 @@ def login(
             )
         elif not blink:
             reason = "No se detecto parpadeo. Parpadea cuando el portal te lo indique."
+        elif borderline:
+            reason = (
+                "El rostro queda cerca del umbral. Mejora la iluminacion, "
+                "acercate a la camara y repite la captura."
+            )
         else:
             reason = "El rostro no coincide con las plantillas registradas."
 
@@ -277,12 +285,13 @@ def login(
         uuid=str(user.uuid) if verified else None,
         liveness_passed=blink,
         similarity=round(best, 4),
-        threshold=settings.face_threshold,
+        threshold=threshold,
         n_frames=result["n_frames"],
         n_faces=result["n_faces"],
         n_usable=result["n_usable"],
         n_moved=result["n_moved"],
         blink_detected=blink,
+        borderline=borderline,
         access_token=create_session_token(username, "face", str(user.uuid)) if verified else None,
         expires_in=settings.session_expire_minutes * 60 if verified else None,
         reason=reason,

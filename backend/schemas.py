@@ -38,6 +38,7 @@ class FaceLoginResponse(BaseModel):
     n_usable: int = 0
     n_moved: int = 0
     blink_detected: bool
+    borderline: bool = False
     access_token: str | None = None
     token_type: str = "bearer"
     expires_in: int | None = None
