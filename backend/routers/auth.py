@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..ownership import resolve_user_by_username
+from ..ownership import resolve_user
 from ..schemas import TokenResponse
 from ..security import auth_limiter, create_session_token
 
@@ -18,6 +18,7 @@ _DUMMY_HASH = pwd.hash("login-biometrico-dummy")
 class PasswordLogin(BaseModel):
     username: str = Field(min_length=1, max_length=100)
     password: str = Field(min_length=1, max_length=128)
+    user_uuid: str | None = Field(default=None, max_length=64)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -26,7 +27,7 @@ def login(body: PasswordLogin, request: Request, db: Session = Depends(get_db)):
     if not auth_limiter.allow(f"password:{client}:{body.username}"):
         raise HTTPException(status_code=429, detail="Demasiados intentos, espera un momento")
 
-    user = resolve_user_by_username(db, request, body.username)
+    user = resolve_user(db, request, body.username, body.user_uuid)
     stored = user.password_hash if user and user.password_hash else _DUMMY_HASH
     valid = pwd.verify(body.password, stored)
 

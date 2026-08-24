@@ -10,7 +10,7 @@ from ..biometrics.voice import embedder, pipeline
 from ..config import settings
 from ..database import get_db
 from ..models import User, VoiceDigitTemplate, VoiceTemplate
-from ..ownership import api_client_id, resolve_user_by_username, scope_user_query
+from ..ownership import api_client_id, resolve_user, scope_user_query
 from ..schemas import (
     VoiceChallengeResponse,
     VoiceChallengeVerifyResponse,
@@ -26,8 +26,10 @@ FEATURE_DIM = 39
 MIN_BACKGROUND_SPEAKERS = 2
 
 
-def _get_user(db: Session, username: str, request: Request | None = None) -> User:
-    return resolve_user_by_username(db, request, username)
+def _get_user(
+    db: Session, username: str, request: Request | None = None, user_uuid: str | None = None
+) -> User:
+    return resolve_user(db, request, username, user_uuid)
 
 
 def _background_templates(
@@ -193,11 +195,12 @@ def register(
 def verify(
     request: Request,
     username: str = Form(...),
+    user_uuid: str | None = Form(default=None),
     audio: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
     check_biometric_rate(request, "voice", username)
-    user = _get_user(db, username, request)
+    user = _get_user(db, username, request, user_uuid)
     tpl = (user.voice_templates or [None])[0]
     if tpl is None:
         raise HTTPException(status_code=404, detail="El usuario no tiene plantilla de voz")
@@ -486,10 +489,11 @@ def delete_digits(username: str, request: Request, db: Session = Depends(get_db)
 def create_challenge(
     request: Request,
     username: str = Form(...),
+    user_uuid: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     check_biometric_rate(request, "voice-challenge", username)
-    user = _get_user(db, username, request)
+    user = _get_user(db, username, request, user_uuid)
     if not user.voice_templates:
         raise HTTPException(status_code=404, detail="El usuario no tiene plantilla de voz")
 
@@ -533,6 +537,7 @@ def create_challenge(
 def verify_challenge(
     request: Request,
     username: str = Form(...),
+    user_uuid: str | None = Form(default=None),
     challenge_id: str = Form(...),
     audio: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -545,7 +550,7 @@ def verify_challenge(
             detail="Desafio invalido, caducado o ya usado. Pide uno nuevo.",
         )
 
-    user = _get_user(db, username, request)
+    user = _get_user(db, username, request, user_uuid)
     tpl = (user.voice_templates or [None])[0]
     if tpl is None:
         raise HTTPException(status_code=404, detail="El usuario no tiene plantilla de voz")

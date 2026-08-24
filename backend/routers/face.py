@@ -14,7 +14,7 @@ from ..database import get_db
 from ..models import FaceTemplate, User
 from ..ownership import (
     api_client_id,
-    resolve_user_by_username,
+    resolve_user,
     scope_new_username,
     scope_user_query,
 )
@@ -80,8 +80,10 @@ def _core_similarity(sims: list[float]) -> float:
     return float(np.median(top_half))
 
 
-def _get_user(db: Session, username: str, request: Request | None = None) -> User:
-    return resolve_user_by_username(db, request, username)
+def _get_user(
+    db: Session, username: str, request: Request | None = None, user_uuid: str | None = None
+) -> User:
+    return resolve_user(db, request, username, user_uuid)
 
 
 def _templates_or_404(user: User) -> list[FaceTemplate]:
@@ -142,10 +144,11 @@ def register(
 def verify(
     request: Request,
     username: str = Form(...),
+    user_uuid: str | None = Form(default=None),
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    user = _get_user(db, username, request)
+    user = _get_user(db, username, request, user_uuid)
     templates = _templates_or_404(user)
     features = _embedding_from_bytes(image.file.read())
     best = _best_similarity(features, templates)
@@ -164,11 +167,12 @@ def verify(
 def login(
     request: Request,
     username: str = Form(...),
+    user_uuid: str | None = Form(default=None),
     frames: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ):
     check_biometric_rate(request, "face", username)
-    user = _get_user(db, username, request)
+    user = _get_user(db, username, request, user_uuid)
     templates = _templates_or_404(user)
     if not frames:
         raise HTTPException(status_code=400, detail="Se requiere al menos un frame")
