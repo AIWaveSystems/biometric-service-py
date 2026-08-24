@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -10,7 +10,9 @@ from ..api_clients import invalidate_cache
 from ..config import settings
 from ..database import get_db
 from ..models import ApiClient
+from ..schemas import PaginationParams
 from ..security import generate_api_key
+from ..utils.pagination import paginate, paginated_response
 
 router = APIRouter(prefix="/api/clients", tags=["clients"])
 
@@ -66,9 +68,20 @@ def create_client(body: ClientCreate, request: Request, db: Session = Depends(ge
 
 
 @router.get("")
-def list_clients(db: Session = Depends(get_db)):
-    rows = db.execute(select(ApiClient).order_by(ApiClient.name)).scalars().all()
-    return [
+def list_clients(
+    page: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=25, ge=1, le=100),
+    search: str | None = Query(default=None, max_length=100),
+    sort_by: str = Query(default="name", max_length=50),
+    sort_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+):
+    params = PaginationParams(
+        page=page or 1, limit=limit, search=search, sort_by=sort_by, sort_dir=sort_dir
+    )
+
+    def serialize(rows):
+        return [
         {
             "uuid": str(c.uuid),
             "name": c.name,
@@ -83,7 +96,28 @@ def list_clients(db: Session = Depends(get_db)):
             "created_by": c.created_by,
         }
         for c in rows
-    ]
+        ]
+
+    if page is None and search is None and sort_by == "name" and sort_dir == "asc":
+        rows = db.execute(select(ApiClient).order_by(ApiClient.name)).scalars().all()
+        return serialize(rows)
+    try:
+        rows, meta = paginate(
+            db,
+            select(ApiClient),
+            params,
+            (ApiClient.name, ApiClient.key_prefix),
+            {
+                "name": ApiClient.name,
+                "created_at": ApiClient.created_at,
+                "expires_at": ApiClient.expires_at,
+                "last_used_at": ApiClient.last_used_at,
+                "active": ApiClient.active,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return paginated_response(serialize(rows), meta)
 
 
 @router.post("/{client_uuid}/revoke")

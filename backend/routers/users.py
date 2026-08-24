@@ -1,5 +1,5 @@
 import numpy as np
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -9,7 +9,8 @@ from ..biometrics.face import detector, embedder, quality
 from ..config import settings
 from ..database import get_db
 from ..models import FaceTemplate, User
-from ..schemas import UserResponse, VoiceRegisterResponse
+from ..schemas import PaginationParams, UserResponse, VoiceRegisterResponse
+from ..utils.pagination import paginate, paginated_response
 from .voice import build_template, find_duplicate_voice
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -145,10 +146,32 @@ def register(
     }
 
 
-@router.get("", response_model=list[UserResponse])
-def list_users(db: Session = Depends(get_db)):
-    users = db.execute(select(User).order_by(User.username)).scalars().all()
-    return [_user_response(u) for u in users]
+@router.get("", response_model=list[UserResponse] | dict)
+def list_users(
+    page: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=25, ge=1, le=100),
+    search: str | None = Query(default=None, max_length=100),
+    sort_by: str = Query(default="username", max_length=50),
+    sort_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+):
+    params = PaginationParams(
+        page=page or 1, limit=limit, search=search, sort_by=sort_by, sort_dir=sort_dir
+    )
+    if page is None and search is None and sort_by == "username" and sort_dir == "asc":
+        users = db.execute(select(User).order_by(User.username)).scalars().all()
+        return [_user_response(u) for u in users]
+    try:
+        users, meta = paginate(
+            db,
+            select(User),
+            params,
+            (User.username,),
+            {"username": User.username, "created_at": User.created_at, "uuid": User.uuid},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return paginated_response([_user_response(u) for u in users], meta)
 
 
 @router.get("/by-uuid/{user_uuid}", response_model=UserResponse)
