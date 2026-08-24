@@ -49,8 +49,11 @@ backend/
   database.py          motor SQLAlchemy y sesión por petición
   models.py            tablas users, portal_users, api_clients, *_templates
   schemas.py           modelos de petición/respuesta de la API
-  api_clients.py       resolución y caché de API keys contra la base de datos
-  routers/
+   api_clients.py       resolución y caché de API keys contra la base de datos
+   ownership.py         aislamiento de usuarios por sistema cliente
+   utils/
+     pagination.py      paginado, búsqueda y ordenamiento compartidos de listas
+   routers/
     portal.py          login de operadores y gestión de operadores
     clients.py         alta, listado, rotación y revocación de API keys
     auth.py            login por contraseña
@@ -137,6 +140,7 @@ python scripts/create_db.py       # crea la base en PostgreSQL
 python scripts/migrate_v05.py     # uuid de usuario, operadores y API keys
 python scripts/migrate_voice.py   # columnas de calibración de voz
 python scripts/migrate_digits.py  # tabla del desafío de dígitos (aditivo)
+python scripts/migrate_user_ownership.py  # columna users.api_client_id (aditivo)
 
 python -m uvicorn backend.main:app --reload # si falla es debido a que uvicorn no esta instalado aun
 ```
@@ -1025,6 +1029,26 @@ Una key sin el permiso que exige la ruta recibe 403, no 401: el fallo es de
 autorización, no de identidad. Las keys se pueden **revocar** (desactivar) o
 **rotar** (nueva clave, la anterior deja de valer al instante).
 
+### Aislamiento por sistema cliente (ownership)
+
+Cada usuario queda ligado al sistema cliente que lo registró: la tabla `users`
+lleva una columna `api_client_id` nullable que se rellena en el alta con la API
+key de la petición. A partir de ahí, **cada key solo ve a sus propios
+usuarios**: consultas, verificaciones, identificación, plantillas, renombrado y
+borrado filtran automáticamente por ese dueño, incluidos el UBM y la cohorte de
+voz (que se construyen solo con voces del mismo cliente) y el guardia de
+duplicados (no rechaza una voz ya matriculada por otro sistema).
+
+Un usuario sin `api_client_id` —los anteriores a esta versión, o los creados por
+un token de portal— pertenece a todos y solo es visible para el portal o keys
+con permiso `admin`. Los endpoints `/api/users/by-uuid/...` permiten operar sin
+depender del nombre: renombrar no rompe las referencias del sistema cliente,
+porque el `uuid` no cambia.
+
+Para bases existentes, `scripts/migrate_user_ownership.py` añade la columna sin
+tocar datos: los usuarios quedan como huérfanos (`NULL`) hasta que el portal los
+reasigne o se actualicen a mano.
+
 Para no consultar la base de datos en cada petición, las keys se cachean 60 s en
 memoria. Ver la nota sobre despliegue con varios procesos en
 [Limitaciones conocidas](#limitaciones-conocidas).
@@ -1096,9 +1120,13 @@ curl -X POST http://127.0.0.1:8000/api/face/verify \
 | `GET` | `/api/users` | `admin` | Lista de usuarios y sus plantillas. |
 | `GET` | `/api/users/by-uuid/{uuid}` | `auth` | Consulta un usuario por su identificador público. |
 | `POST` | `/api/users/{username}/faces` | `enroll` | **Añade** plantillas faciales a un usuario existente (acumula). |
+| `POST` | `/api/users/by-uuid/{uuid}/faces` | `enroll` | Igual que la anterior, dirigida por `uuid`. |
 | `POST` | `/api/users/{username}/password` | `admin` | Fija, cambia o retira la contraseña. Campo vacío = la retira. |
+| `POST` | `/api/users/by-uuid/{uuid}/password` | `admin` | Igual que la anterior, dirigida por `uuid`. |
 | `POST` | `/api/users/{username}/rename` | `admin` | Renombra conservando el `uuid` y todas las plantillas. |
+| `POST` | `/api/users/by-uuid/{uuid}/rename` | `admin` | Igual que la anterior, dirigida por `uuid`. |
 | `DELETE` | `/api/users/{username}` | `admin` | Borra usuario y plantillas en cascada. |
+| `DELETE` | `/api/users/by-uuid/{uuid}` | `admin` | Igual que la anterior, dirigida por `uuid`. |
 | `POST` | `/api/face/register` | `enroll` | Alta solo con rostro. |
 | `POST` | `/api/face/verify` | `auth` | Compara una foto contra un usuario. |
 | `POST` | `/api/face/login` | `auth` | Login con ráfaga de frames y liveness. Devuelve token. |
@@ -1118,6 +1146,24 @@ curl -X POST http://127.0.0.1:8000/api/face/verify \
 
 Las respuestas de login incluyen `reason` con una explicación legible cuando la
 verificación falla, y `access_token` cuando tiene éxito.
+
+### Listados: paginación, búsqueda y orden
+
+Los tres listados —`GET /api/users`, `GET /api/clients` y
+`GET /api/portal/users`— aceptan parámetros de consulta comunes y devuelven el
+mismo sobre cuando se usan:
+
+| Parámetro | Por defecto | Qué hace |
+|---|---|---|
+| `page` | — | Sin este parámetro la respuesta es el array plano de siempre (compatibilidad). Con él, sobre paginado. |
+| `limit` | `25` | Registros por página, máximo 100. |
+| `search` | — | Búsqueda parcial e insensible a mayúsculas por nombre/usuario (y prefijo en clients). |
+| `sort_by` | `username` / `name` | Campo de orden. Cada listado publica los suyos; uno inválido devuelve 400. |
+| `sort_dir` | `asc` | `asc` o `desc`. |
+
+La forma paginada envuelve los registros en `{items, page, limit, total, pages}`.
+Sin parámetros de filtrado ni orden, los endpoints siguen devolviendo el array
+completo tal cual antes, así que ningún cliente existente se rompe.
 
 > **Si consumes `/api/voice/verify`, comprueba `scoring`.** El servicio responde
 > `verified: true` con normalidad aunque esté funcionando en modo degradado por
@@ -1399,6 +1445,7 @@ no generaliza.
 | `migrate_v05.py` | Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
 | `migrate_voice.py` | Añade las columnas de calibración y limpia plantillas de voz obsoletas. |
 | `migrate_digits.py` | Crea `voice_digit_templates`. **Puramente aditivo:** no toca ningún dato existente. |
+| `migrate_user_ownership.py` | Añade `users.api_client_id` con su clave ajena e índice. **Aditivo:** los usuarios quedan sin dueño (`NULL`). |
 | `synth.py` | Genera locutores sintéticos para probar sin micrófono. **No mezcles su salida con usuarios reales.** |
 | `record_blink.py` | Graba una ráfaga real de parpadeo con tu webcam, con aviso de cuándo parpadear. |
 | `record_digits.py` | Graba la matrícula de dígitos guiándote, y valida el troceo antes de subirla. |
