@@ -1065,10 +1065,14 @@ memoria. Ver la nota sobre despliegue con varios procesos en
 
 ### Identificador público de usuario
 
-Cada usuario tiene un `uuid` estable, independiente de su `id` interno y de su
+Cada usuario tiene un `uuid` estable, independiente de su `id` interno y su
 nombre. Es el identificador que deben guardar los sistemas clientes para vincular
-a la persona, y se devuelve en el alta, en las verificaciones correctas y en
-`GET /api/users/by-uuid/{uuid}`. Exponer el `id` autoincremental habría filtrado
+a la persona: se devuelve en el alta (`POST /api/users/register`,
+`POST /api/face/register`) y en cada verificación correcta, y con él el cliente
+gestiona todo el ciclo —consulta, plantillas nuevas, contraseña, renombrado y
+baja— vía los endpoints `/api/users/by-uuid/...`. Ver la sección
+[Ciclo de vida del usuario por UUID](docs/integracion/backend.md#ciclo-de-vida-del-usuario-por-uuid).
+Exponer el `id` autoincremental habría filtrado
 cuántos usuarios hay dados de alta.
 
 ### Protecciones implementadas

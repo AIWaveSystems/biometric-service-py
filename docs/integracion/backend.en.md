@@ -124,6 +124,51 @@ async def face_login(
 
 ---
 
+## User lifecycle by UUID
+
+When you enrol someone (`POST /api/users/register` or `POST /api/face/register`), the
+response carries the user's `uuid`. **Store it in your own database**, linked to your
+local user: it is the key you will use to query, update and delete their biometric data
+later on. It survives renames and never changes.
+
+| Operation in the service | Endpoint | Permission |
+| --- | --- | --- |
+| Query status and templates | `GET /api/users/by-uuid/{uuid}` | `auth` |
+| Add face templates | `POST /api/users/by-uuid/{uuid}/faces` | `enroll` |
+| Set, change or remove a password | `POST /api/users/by-uuid/{uuid}/password` | `admin` |
+| Rename while keeping the `uuid` | `POST /api/users/by-uuid/{uuid}/rename` | `admin` |
+| Delete the account (removes templates) | `DELETE /api/users/by-uuid/{uuid}` | `admin` |
+
+```python
+def detail(self, user_uuid):
+    r = self._http.get(f"/api/users/by-uuid/{user_uuid}")
+    r.raise_for_status()
+    return r.json()
+
+def add_faces(self, user_uuid, photos):
+    files = [("images", (p.name, p.read_bytes(), "image/jpeg")) for p in photos]
+    r = self._http.post(f"/api/users/by-uuid/{user_uuid}/faces", files=files)
+    r.raise_for_status()
+    return r.json()
+
+def delete_user(self, user_uuid):
+    r = self._http.delete(f"/api/users/by-uuid/{user_uuid}")
+    r.raise_for_status()
+    return r.json()
+```
+
+!!! tip "Propagate deletion to the service"
+    When a user leaves your platform, issue the `DELETE` against the service as part of
+    the same offboarding flow. Their biometric templates must not outlive their account.
+
+!!! warning "Your API key only sees its own users"
+    Everything registered with your key is bound to it: queries, updates and deletions
+    only reach users created by your system. Users enrolled earlier or through the portal
+    are visible to the portal or `admin` keys only. See
+    [Security model](../operacion/seguridad.en.md).
+
+---
+
 ## Node.js
 
 ```javascript

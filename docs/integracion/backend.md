@@ -174,6 +174,51 @@ async function responderDesafio(username, challengeId, audioBuffer) {
 
 ---
 
+## Ciclo de vida del usuario por UUID
+
+Cuando das de alta a alguien (`POST /api/users/register` o `POST /api/face/register`),
+la respuesta trae el `uuid` del usuario. **Guardalo en tu propia base**, asociado a tu
+usuario local: es la clave con la que consultaras, actualizaras y eliminaras sus datos
+biometricos mas adelante. Sobrevive a los renombrados y nunca cambia.
+
+| Operacion en el servicio | Endpoint | Permiso |
+| --- | --- | --- |
+| Consultar estado y plantillas | `GET /api/users/by-uuid/{uuid}` | `auth` |
+| Anadir plantillas faciales | `POST /api/users/by-uuid/{uuid}/faces` | `enroll` |
+| Fijar, cambiar o retirar contrasena | `POST /api/users/by-uuid/{uuid}/password` | `admin` |
+| Renombrar conservando el `uuid` | `POST /api/users/by-uuid/{uuid}/rename` | `admin` |
+| Dar de baja (borra plantillas) | `DELETE /api/users/by-uuid/{uuid}` | `admin` |
+
+```python
+def detalle(self, user_uuid):
+    r = self._http.get(f"/api/users/by-uuid/{user_uuid}")
+    r.raise_for_status()
+    return r.json()
+
+def anadir_rostros(self, user_uuid, fotos):
+    files = [("images", (p.name, p.read_bytes(), "image/jpeg")) for p in fotos]
+    r = self._http.post(f"/api/users/by-uuid/{user_uuid}/faces", files=files)
+    r.raise_for_status()
+    return r.json()
+
+def dar_de_baja(self, user_uuid):
+    r = self._http.delete(f"/api/users/by-uuid/{user_uuid}")
+    r.raise_for_status()
+    return r.json()
+```
+
+!!! tip "Borra en el servicio cuando borres en tu sistema"
+    Si el usuario se da de baja en tu plataforma, propaga el `DELETE` al servicio en el
+    mismo proceso. Sus plantillas biometricas no deben sobrevivir a su cuenta.
+
+!!! warning "Tu API key solo ve a tus propios usuarios"
+    Todo lo que registres con tu key queda ligado a ella: las consultas, actualizaciones
+    y borrados solo alcanzan a usuarios creados por tu sistema. Los usuarios anteriores o
+    dados de alta desde el portal solo son visibles para el portal o keys `admin`. Ver
+    [Modelo de seguridad](../operacion/seguridad.md).
+
+---
+
 ## Flujo completo de login por voz
 
 ```mermaid
