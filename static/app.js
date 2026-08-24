@@ -123,6 +123,15 @@ function formatError(detail) {
   return detail || "Error desconocido";
 }
 
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[c]);
+
 function fmtDate(iso) {
   if (!iso) return "—";
   try {
@@ -1378,8 +1387,8 @@ async function loadUsers() {
     for (const u of users) {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${u.username}</td>
-        <td>${u.owner ? `${u.owner.name} <code>lbs_${u.owner.key_prefix}_…</code>` : "Portal / admin"}</td>
+        <td>${esc(u.username)}</td>
+        <td>${u.owner ? `${esc(u.owner.name)} <code>lbs_${esc(u.owner.key_prefix)}_…</code>` : "Portal / admin"}</td>
         <td>${badge(u.has_password)}</td>
         <td>${
           u.face_templates.length >= 3
@@ -1453,7 +1462,7 @@ async function loadUsers() {
       tbody.innerHTML = `<tr><td colspan="${COLS}">Sin usuarios registrados</td></tr>`;
     renderPagination("users", data, loadUsers);
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="${COLS}">Error: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${COLS}">Error: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -1472,8 +1481,8 @@ function showKeyResult(el, apiKey, aviso) {
   el.hidden = false;
   el.className = "result ok";
   el.innerHTML =
-    `<strong>API key generada.</strong> ${aviso || "Copia y guarda la clave ahora."}` +
-    `<div class="key-box">${apiKey}</div>`;
+    `<strong>API key generada.</strong> ${esc(aviso || "Copia y guarda la clave ahora.")}` +
+    `<div class="key-box">${esc(apiKey)}</div>`;
 }
 
 async function loadClients() {
@@ -1515,9 +1524,9 @@ async function loadClients() {
       row.appendChild(rotate);
       tdActions.appendChild(row);
       tr.innerHTML = `
-        <td>${c.name}</td>
-        <td><code>lbs_${c.key_prefix}_…</code></td>
-        <td>${scopes}</td>
+        <td>${esc(c.name)}</td>
+        <td><code>lbs_${esc(c.key_prefix)}_…</code></td>
+        <td>${esc(scopes)}</td>
         <td>${clientStatus(c)}</td>
         <td>${fmtDate(c.expires_at)}</td>
         <td>${fmtDate(c.last_used_at)}</td>`;
@@ -1527,7 +1536,7 @@ async function loadClients() {
     if (!clients.length) tbody.innerHTML = '<tr><td colspan="7">Sin clientes API</td></tr>';
     renderPagination("clients", data, loadClients);
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7">Error: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7">Error: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -1596,7 +1605,7 @@ async function loadOperators() {
         tdActions.textContent = "—";
       }
       tr.innerHTML = `
-        <td>${u.username}${bootstrap}</td>
+        <td>${esc(u.username)}${bootstrap}</td>
         <td>${status}</td>
         <td>${fmtDate(u.last_login_at)}</td>`;
       tr.appendChild(tdActions);
@@ -1605,7 +1614,7 @@ async function loadOperators() {
     if (!ops.length) tbody.innerHTML = '<tr><td colspan="4">Sin operadores</td></tr>';
     renderPagination("operators", data, loadOperators);
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="4">Error: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4">Error: ${esc(e.message)}</td></tr>`;
   }
 }
 
