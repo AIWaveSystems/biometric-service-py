@@ -26,6 +26,10 @@ localmente, sin llamadas externas.
 > tiene fallas inherentes: lee las
 > [Advertencias de desarrollo](docs/operacion/advertencias.md) antes de usarlo.
 
+> 📚 Documentación completa publicada en:
+> **[aiwavesystems.github.io/biometric-service-py](https://aiwavesystems.github.io/biometric-service-py/)**
+> (generada con MkDocs desde la carpeta [`docs/`](docs/index.md)).
+
 ---
 
 ## Índice
