@@ -71,8 +71,7 @@ async function validatePortalSession() {
     updateWhoami();
     return true;
   } catch {
-    clearPortalSession();
-    showGate();
+    returnToGate();
     return false;
   }
 }
@@ -87,6 +86,22 @@ function enterApp() {
   $("app").hidden = false;
   const name = hashTab();
   if (name) applyTab(name);
+}
+
+function returnToGate(message) {
+  closeAllCameras();
+  stopVoice();
+  ["reg", "login", "challenge", "enroll", "analizar"].forEach(clearPlayback);
+  window._regPhotos = null;
+  window._regVoice = null;
+  window._digitEnroll = null;
+  window._challenge = null;
+  window._loginFrames = null;
+  window._loginVoice = null;
+  clearPortalSession();
+  showGate();
+  $("gate-user").focus();
+  if (message) toast(message);
 }
 
 function toast(msg) {
@@ -129,9 +144,7 @@ async function api(url, opts = {}) {
     data = { detail: r.statusText };
   }
   if (r.status === 401) {
-    clearPortalSession();
-    showGate();
-    toast("Sesión expirada. Vuelve a entrar.");
+    returnToGate("Sesión expirada. Vuelve a entrar.");
     throw new Error(formatError(data.detail) || "No autorizado");
   }
   if (!r.ok) throw new Error(formatError(data.detail) || `Error ${r.status}`);
@@ -209,11 +222,7 @@ $("gate-pass").addEventListener("keydown", (e) => {
 });
 
 $("logout-btn").addEventListener("click", () => {
-  closeAllCameras();
-  clearPlayback("reg");
-  clearPlayback("login");
-  clearPortalSession();
-  showGate();
+  returnToGate();
 });
 
 const TABS = ["login", "registro", "gestion", "clientes", "operadores"];
