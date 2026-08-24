@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from passlib.context import CryptContext
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..models import PortalUser
+from ..schemas import PaginationParams
 from ..security import auth_limiter, create_portal_token, decode_token
+from ..utils.pagination import paginate, paginated_response
 
 router = APIRouter(prefix="/api/portal", tags=["portal"])
 pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -96,9 +98,20 @@ def portal_me(request: Request):
 
 
 @router.get("/users")
-def list_portal_users(db: Session = Depends(get_db)):
-    rows = db.execute(select(PortalUser).order_by(PortalUser.username)).scalars().all()
-    return [
+def list_portal_users(
+    page: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=25, ge=1, le=100),
+    search: str | None = Query(default=None, max_length=100),
+    sort_by: str = Query(default="username", max_length=50),
+    sort_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+):
+    params = PaginationParams(
+        page=page or 1, limit=limit, search=search, sort_by=sort_by, sort_dir=sort_dir
+    )
+
+    def serialize(rows):
+        return [
         {
             "uuid": str(u.uuid),
             "username": u.username,
@@ -108,7 +121,27 @@ def list_portal_users(db: Session = Depends(get_db)):
             "last_login_at": u.last_login_at,
         }
         for u in rows
-    ]
+        ]
+
+    if page is None and search is None and sort_by == "username" and sort_dir == "asc":
+        rows = db.execute(select(PortalUser).order_by(PortalUser.username)).scalars().all()
+        return serialize(rows)
+    try:
+        rows, meta = paginate(
+            db,
+            select(PortalUser),
+            params,
+            (PortalUser.username,),
+            {
+                "username": PortalUser.username,
+                "created_at": PortalUser.created_at,
+                "last_login_at": PortalUser.last_login_at,
+                "active": PortalUser.active,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return paginated_response(serialize(rows), meta)
 
 
 @router.post("/users", status_code=201)

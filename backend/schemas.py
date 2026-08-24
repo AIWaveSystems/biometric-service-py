@@ -1,4 +1,14 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class PaginationParams(BaseModel):
+    page: int = Field(default=1, ge=1)
+    limit: int = Field(default=25, ge=1, le=100)
+    search: str | None = Field(default=None, max_length=100)
+    sort_by: str = Field(default="username", max_length=50)
+    sort_dir: Literal["asc", "desc"] = "asc"
 
 
 class FaceRegisterResponse(BaseModel):
@@ -28,6 +38,7 @@ class FaceLoginResponse(BaseModel):
     n_usable: int = 0
     n_moved: int = 0
     blink_detected: bool
+    borderline: bool = False
     access_token: str | None = None
     token_type: str = "bearer"
     expires_in: int | None = None
@@ -125,6 +136,7 @@ class UserResponse(BaseModel):
     digits: list[str] = []
     digits_challenge_ready: bool = False
     digits_cmvn_ok: bool = False
+    owner: dict | None = None
 
 
 class FaceRegisterRequest(BaseModel):

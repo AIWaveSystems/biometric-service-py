@@ -128,6 +128,7 @@ nav:
   - Operacion:
       - Despliegue: operacion/despliegue.md
       - Seguridad y umbrales: operacion/seguridad.md
+      - Advertencias de desarrollo: operacion/advertencias.md
       - Limitaciones conocidas: operacion/limitaciones.md
   - Licencia: licencia.md
 

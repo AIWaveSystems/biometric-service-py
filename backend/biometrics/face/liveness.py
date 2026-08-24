@@ -2,15 +2,16 @@ import numpy as np
 
 from . import landmarks as lm
 
-BLINK_CLOSED_RATIO = 0.75
+BLINK_CLOSED_RATIO = 0.78
 MIN_OPEN_FRAMES = 1
 MIN_CLOSED_FRAMES = 2
-MIN_BLINK_DROP = 0.25
+MIN_BLINK_DROP = 0.18
 DROP_WINDOW = 2
 MIN_FACES = 6
 MAX_GAP_RATIO = 0.4
 
 MAX_MOTION_RATIO = 0.22
+FACE_SWAP_AREA_RATIO = 2.25
 
 
 def landmarks(face: np.ndarray) -> dict:
@@ -48,11 +49,20 @@ def _motion_mask(faces: list[np.ndarray | None]) -> list[bool]:
             previous = None
             continue
         marks = landmarks(face)
-        if previous is not None and marks["interocular"] > 1e-6:
-            shift = float(np.linalg.norm(marks["eye_center"] - previous["eye_center"]))
-            if shift / marks["interocular"] > MAX_MOTION_RATIO:
+        if previous is not None:
+            prev_marks, prev_area = previous
+            area = float(face[2]) * float(face[3])
+            if (
+                prev_area > 1e-6
+                and area > 1e-6
+                and (area / prev_area > FACE_SWAP_AREA_RATIO or prev_area / area > FACE_SWAP_AREA_RATIO)
+            ):
                 moved[i] = True
-        previous = marks
+            if marks["interocular"] > 1e-6 and prev_marks["interocular"] > 1e-6:
+                shift = float(np.linalg.norm(marks["eye_center"] - prev_marks["eye_center"]))
+                if shift / marks["interocular"] > MAX_MOTION_RATIO:
+                    moved[i] = True
+        previous = (marks, float(face[2]) * float(face[3]))
     return moved
 
 
@@ -140,6 +150,7 @@ def analyze(
         "n_faces": n_faces,
         "n_usable": n_usable,
         "n_moved": n_moved,
+        "moved": moved,
         "gap_ratio": round(gap_ratio, 3),
         "face_detected": enough_faces,
         "stable": stable,

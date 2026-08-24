@@ -16,6 +16,16 @@ localmente, sin llamadas externas.
 > clasifica como dato sensible. Requieren autorización previa, explícita e
 > informada del titular. Ver [Limitaciones conocidas](#limitaciones-conocidas).
 
+> ⚠️ **Proyecto en desarrollo — pre-release 1.0.0 no oficial.** Aún no hay release
+> ni tag en git; el código solo pasará a `main` cuando exista una versión estable
+> y funcional. El módulo de **voz es el más refinado** (matrícula guiada, desafío
+> de dígitos, detección de duplicados y umbrales medidos con datos reales). El
+> **rostro sigue en calibración**: su umbral de decisión aún produce fallas de
+> falsa aceptación/rechazo según la población, y está pendiente de medición con
+> una base real (`scripts/calibrate_face_db.py`). Como todo sistema biométrico,
+> tiene fallas inherentes: lee las
+> [Advertencias de desarrollo](docs/operacion/advertencias.md) antes de usarlo.
+
 ---
 
 ## Índice
@@ -35,7 +45,8 @@ localmente, sin llamadas externas.
 13. [Calibración de umbrales](#calibración-de-umbrales)
 14. [Scripts](#scripts)
 15. [Limitaciones conocidas](#limitaciones-conocidas)
-16. [Licencia](#licencia)
+16. [Advertencias de desarrollo y cómo contribuir](docs/operacion/advertencias.md)
+17. [Licencia](#licencia)
 
 ---
 
@@ -49,8 +60,11 @@ backend/
   database.py          motor SQLAlchemy y sesión por petición
   models.py            tablas users, portal_users, api_clients, *_templates
   schemas.py           modelos de petición/respuesta de la API
-  api_clients.py       resolución y caché de API keys contra la base de datos
-  routers/
+   api_clients.py       resolución y caché de API keys contra la base de datos
+   ownership.py         aislamiento de usuarios por sistema cliente
+   utils/
+     pagination.py      paginado, búsqueda y ordenamiento compartidos de listas
+   routers/
     portal.py          login de operadores y gestión de operadores
     clients.py         alta, listado, rotación y revocación de API keys
     auth.py            login por contraseña
@@ -137,8 +151,9 @@ python scripts/create_db.py       # crea la base en PostgreSQL
 python scripts/migrate_v05.py     # uuid de usuario, operadores y API keys
 python scripts/migrate_voice.py   # columnas de calibración de voz
 python scripts/migrate_digits.py  # tabla del desafío de dígitos (aditivo)
+python scripts/migrate_user_ownership.py  # columna users.api_client_id (aditivo)
 
-uvicorn backend.main:app --reload
+python -m uvicorn backend.main:app --reload # si falla es debido a que uvicorn no esta instalado aun
 ```
 
 `fetch_models.py` es **obligatorio antes del primer arranque**: los pesos ONNX no
@@ -343,13 +358,13 @@ Por eso la señal pasó a ser geométrica. La forma del párpado no depende de l
 
 ### La detección del parpadeo
 
-Un frame se marca *cerrado* si su señal baja del `BLINK_CLOSED_RATIO` (75 %) del
+Un frame se marca *cerrado* si su señal baja del `BLINK_CLOSED_RATIO` (78 %) del
 percentil 80 de la ráfaga: umbral relativo, para adaptarse a cada cámara y luz.
 Se acepta un parpadeo cuando concurren tres condiciones:
 
 1. Patrón **abierto → cerrado → abierto**, con al menos 2 frames cerrados
    consecutivos y 1 frame abierto a cada lado.
-2. **Profundidad mínima de la caída** (`MIN_BLINK_DROP`, 25 %) respecto al mejor
+2. **Profundidad mínima de la caída** (`MIN_BLINK_DROP`, 18 %) respecto al mejor
    valor de los 2 frames vecinos a cada lado.
 3. Ningún frame de la racha descartado por movimiento.
 
@@ -453,6 +468,7 @@ curl -X POST http://TU_HOST/api/face/login   -H "X-API-Key: lbs_..."   -F "usern
   "n_usable": 26,
   "n_moved": 2,
   "blink_detected": true,
+  "borderline": false,
   "access_token": "eyJ...",
   "expires_in": 900,
   "reason": null
@@ -469,6 +485,7 @@ Guarda el `uuid`: es el identificador estable del usuario. Cuando `verified` es
 | `n_faces` mucho menor que `n_frames` | Pedir que mire de frente y mejore la luz. |
 | `n_moved` alto / `n_usable` bajo | Pedir que se quede quieto y repetir. |
 | `blink_detected` false | Repetir insistiendo en parpadear **con el aviso**. |
+| `borderline: true` | La captura quedó cerca del umbral: repetir mejorando la luz y la distancia. |
 | `similarity` bajo el umbral | No es un problema de captura: la cara no coincide. |
 | HTTP 409 | Ráfaga repetida (anti-replay). Hay que grabar de nuevo, no reenviar. |
 | HTTP 429 | Demasiados intentos. Esperar antes de reintentar. |
@@ -1025,16 +1042,40 @@ Una key sin el permiso que exige la ruta recibe 403, no 401: el fallo es de
 autorización, no de identidad. Las keys se pueden **revocar** (desactivar) o
 **rotar** (nueva clave, la anterior deja de valer al instante).
 
+### Aislamiento por sistema cliente (ownership)
+
+Cada usuario queda ligado al sistema cliente que lo registró: la tabla `users`
+lleva una columna `api_client_id` nullable que se rellena en el alta con la API
+key de la petición. A partir de ahí, **cada key solo ve a sus propios
+usuarios**: consultas, verificaciones, identificación, plantillas, renombrado y
+borrado filtran automáticamente por ese dueño, incluidos el UBM y la cohorte de
+voz (que se construyen solo con voces del mismo cliente) y el guardia de
+duplicados (no rechaza una voz ya matriculada por otro sistema).
+
+Un usuario sin `api_client_id` —los anteriores a esta versión, o los creados por
+un token de portal— pertenece a todos y solo es visible para el portal o keys
+con permiso `admin`. Los endpoints `/api/users/by-uuid/...` permiten operar sin
+depender del nombre: renombrar no rompe las referencias del sistema cliente,
+porque el `uuid` no cambia.
+
+Para bases existentes, `scripts/migrate_user_ownership.py` añade la columna sin
+tocar datos: los usuarios quedan como huérfanos (`NULL`) hasta que el portal los
+reasigne o se actualicen a mano.
+
 Para no consultar la base de datos en cada petición, las keys se cachean 60 s en
 memoria. Ver la nota sobre despliegue con varios procesos en
 [Limitaciones conocidas](#limitaciones-conocidas).
 
 ### Identificador público de usuario
 
-Cada usuario tiene un `uuid` estable, independiente de su `id` interno y de su
+Cada usuario tiene un `uuid` estable, independiente de su `id` interno y su
 nombre. Es el identificador que deben guardar los sistemas clientes para vincular
-a la persona, y se devuelve en el alta, en las verificaciones correctas y en
-`GET /api/users/by-uuid/{uuid}`. Exponer el `id` autoincremental habría filtrado
+a la persona: se devuelve en el alta (`POST /api/users/register`,
+`POST /api/face/register`) y en cada verificación correcta, y con él el cliente
+gestiona todo el ciclo —consulta, plantillas nuevas, contraseña, renombrado y
+baja— vía los endpoints `/api/users/by-uuid/...`. Ver la sección
+[Ciclo de vida del usuario por UUID](docs/integracion/backend.md#ciclo-de-vida-del-usuario-por-uuid).
+Exponer el `id` autoincremental habría filtrado
 cuántos usuarios hay dados de alta.
 
 ### Protecciones implementadas
@@ -1096,9 +1137,13 @@ curl -X POST http://127.0.0.1:8000/api/face/verify \
 | `GET` | `/api/users` | `admin` | Lista de usuarios y sus plantillas. |
 | `GET` | `/api/users/by-uuid/{uuid}` | `auth` | Consulta un usuario por su identificador público. |
 | `POST` | `/api/users/{username}/faces` | `enroll` | **Añade** plantillas faciales a un usuario existente (acumula). |
+| `POST` | `/api/users/by-uuid/{uuid}/faces` | `enroll` | Igual que la anterior, dirigida por `uuid`. |
 | `POST` | `/api/users/{username}/password` | `admin` | Fija, cambia o retira la contraseña. Campo vacío = la retira. |
+| `POST` | `/api/users/by-uuid/{uuid}/password` | `admin` | Igual que la anterior, dirigida por `uuid`. |
 | `POST` | `/api/users/{username}/rename` | `admin` | Renombra conservando el `uuid` y todas las plantillas. |
+| `POST` | `/api/users/by-uuid/{uuid}/rename` | `admin` | Igual que la anterior, dirigida por `uuid`. |
 | `DELETE` | `/api/users/{username}` | `admin` | Borra usuario y plantillas en cascada. |
+| `DELETE` | `/api/users/by-uuid/{uuid}` | `admin` | Igual que la anterior, dirigida por `uuid`. |
 | `POST` | `/api/face/register` | `enroll` | Alta solo con rostro. |
 | `POST` | `/api/face/verify` | `auth` | Compara una foto contra un usuario. |
 | `POST` | `/api/face/login` | `auth` | Login con ráfaga de frames y liveness. Devuelve token. |
@@ -1118,6 +1163,24 @@ curl -X POST http://127.0.0.1:8000/api/face/verify \
 
 Las respuestas de login incluyen `reason` con una explicación legible cuando la
 verificación falla, y `access_token` cuando tiene éxito.
+
+### Listados: paginación, búsqueda y orden
+
+Los tres listados —`GET /api/users`, `GET /api/clients` y
+`GET /api/portal/users`— aceptan parámetros de consulta comunes y devuelven el
+mismo sobre cuando se usan:
+
+| Parámetro | Por defecto | Qué hace |
+|---|---|---|
+| `page` | — | Sin este parámetro la respuesta es el array plano de siempre (compatibilidad). Con él, sobre paginado. |
+| `limit` | `25` | Registros por página, máximo 100. |
+| `search` | — | Búsqueda parcial e insensible a mayúsculas por nombre/usuario (y prefijo en clients). |
+| `sort_by` | `username` / `name` | Campo de orden. Cada listado publica los suyos; uno inválido devuelve 400. |
+| `sort_dir` | `asc` | `asc` o `desc`. |
+
+La forma paginada envuelve los registros en `{items, page, limit, total, pages}`.
+Sin parámetros de filtrado ni orden, los endpoints siguen devolviendo el array
+completo tal cual antes, así que ningún cliente existente se rompe.
 
 > **Si consumes `/api/voice/verify`, comprueba `scoring`.** El servicio responde
 > `verified: true` con normalidad aunque esté funcionando en modo degradado por
@@ -1399,6 +1462,7 @@ no generaliza.
 | `migrate_v05.py` | Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
 | `migrate_voice.py` | Añade las columnas de calibración y limpia plantillas de voz obsoletas. |
 | `migrate_digits.py` | Crea `voice_digit_templates`. **Puramente aditivo:** no toca ningún dato existente. |
+| `migrate_user_ownership.py` | Añade `users.api_client_id` con su clave ajena e índice. **Aditivo:** los usuarios quedan sin dueño (`NULL`). |
 | `synth.py` | Genera locutores sintéticos para probar sin micrófono. **No mezcles su salida con usuarios reales.** |
 | `record_blink.py` | Graba una ráfaga real de parpadeo con tu webcam, con aviso de cuándo parpadear. |
 | `record_digits.py` | Graba la matrícula de dígitos guiándote, y valida el troceo antes de subirla. |
@@ -1409,12 +1473,15 @@ no generaliza.
 | `test_digits.py` | Troceo, desafíos de un solo uso y discriminación de dígitos. No toca la base. |
 | `test_challenge_api.py` | Desafío de extremo a extremo contra un servidor. Crea y borra **solo** su propio usuario temporal. |
 | `test_replay.py` | Demuestra que una voz reproducida por altavoz se acepta. |
+| `calibrate_face.py` | Mide el umbral facial desde fotos en `datos_cara/<persona>/`. |
+| `calibrate_face_db.py` | Mide el umbral facial desde las plantillas ya guardadas en la base: distribuciones genuino/impostor, EER, umbral por FAR objetivo y pares impostores altos (cuentas duplicadas o gemelas). Solo lectura. |
 | `test_apikeys.py` | Valida cabecera, hash, permisos, caducidad, revocación y rotación de API keys. Revoca solo las suyas. |
 | `diagnose_voice_db.py` | Puntúa audio real contra **todas** las cuentas de la base y recomienda umbral. Solo lee. |
 | `test_speaker_embedding.py` | Valida el fbank estilo Kaldi, el embedding CAM++ y su separación. No toca la base. |
 | `test_voice_duplicates.py` | Valida el guardia de voces duplicadas contra un servidor. Crea y borra **solo** sus usuarios. |
 | `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
 | `calibrate_face.py` | Calcula FAR/FRR/EER faciales con datos reales. |
+| `calibrate_face_db.py` | Igual, pero desde las plantillas ya en la base, sin capturar nada. Marca cuentas duplicadas. Solo lee. |
 | `calibrate_voice.py` | Calcula FAR/FRR/EER de voz con datos reales. |
 | `diagnose_face.py` | Detección, calidad y matriz de similitud foto a foto. |
 | `diagnose_liveness.py` | Vuelca la señal de apertura ocular frame a frame. |
@@ -1448,6 +1515,12 @@ Acepta `BASE_URL`, `PORTAL_USER` y `PORTAL_PASSWORD` como variables de entorno.
 ---
 
 ## Limitaciones conocidas
+
+> Además de esta sección, revisa las
+> [Advertencias de desarrollo](docs/operacion/advertencias.md): el estado real
+> del proyecto, por qué el login por voz y el facial exigen calibración y ajuste
+> de código en cada sistema integrador, y cómo proponer correcciones con un PR
+> hacia `develop`.
 
 ### Defectos abiertos
 

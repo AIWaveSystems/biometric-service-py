@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import select
@@ -9,6 +10,7 @@ from ..biometrics.face import detector, embedder, liveness, quality
 from ..config import settings
 from ..database import get_db
 from ..models import FaceTemplate, User
+from ..ownership import api_client_id, scope_user_query
 from ..schemas import (
     FaceIdentifyResponse,
     FaceLoginResponse,
@@ -20,6 +22,10 @@ from ..security import create_session_token, replay_guard
 router = APIRouter(prefix="/api/face", tags=["face"])
 
 ALGORITHM = "sface"
+MIN_DETECTION_CONFIDENCE = 0.7
+THUMB_SIZE = (64, 64)
+DUP_MEAN_ABS = 1.5
+BORDERLINE_MARGIN = 0.03
 
 
 def _embedding_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarray:
@@ -30,7 +36,9 @@ def _embedding_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarr
     rect = embedder.face_rect(face, img.shape)
     if enforce_quality:
         normalized = detector.normalize_face(img, rect)
-        problem = quality.check(quality.measure(normalized, rect))
+        problem = quality.check(
+            quality.measure(normalized, rect, detector.raw_face(img, rect))
+        )
         if problem is not None:
             raise HTTPException(status_code=400, detail=problem)
     return embedder.embed(img, face)
@@ -48,8 +56,26 @@ def _best_similarity(features: np.ndarray, templates: list[FaceTemplate]) -> flo
     return max(best, 0.0)
 
 
-def _get_user(db: Session, username: str) -> User:
-    user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+def _duplicate(thumb: np.ndarray, thumbs: list[np.ndarray]) -> bool:
+    probe = thumb.astype(np.int16)
+    return any(
+        float(np.abs(probe - other.astype(np.int16)).mean()) < DUP_MEAN_ABS
+        for other in thumbs
+    )
+
+
+def _core_similarity(sims: list[float]) -> float:
+    if not sims:
+        return 0.0
+    top_half = sims[: (len(sims) + 1) // 2]
+    return float(np.median(top_half))
+
+
+def _get_user(db: Session, username: str, request: Request | None = None) -> User:
+    query = select(User).where(User.username == username)
+    if request is not None:
+        query = scope_user_query(query, request, User)
+    user = db.execute(query).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return user
@@ -67,12 +93,14 @@ def _templates_or_404(user: User) -> list[FaceTemplate]:
 
 @router.post("/register", response_model=FaceRegisterResponse)
 def register(
+    request: Request,
     username: str = Form(..., min_length=3, max_length=100),
     password: str | None = Form(default=None, min_length=6, max_length=128),
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    existing = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+    existing_query = scope_user_query(select(User).where(User.username == username), request, User)
+    existing = db.execute(existing_query).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
@@ -83,10 +111,11 @@ def register(
 
         user = User(
             username=username,
+            api_client_id=api_client_id(request),
             password_hash=CryptContext(schemes=["bcrypt"], deprecated="auto").hash(password),
         )
     else:
-        user = User(username=username)
+        user = User(username=username, api_client_id=api_client_id(request))
 
     db.add(user)
     try:
@@ -108,11 +137,12 @@ def register(
 
 @router.post("/verify", response_model=FaceVerifyResponse)
 def verify(
+    request: Request,
     username: str = Form(...),
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     templates = _templates_or_404(user)
     features = _embedding_from_bytes(image.file.read())
     best = _best_similarity(features, templates)
@@ -135,7 +165,7 @@ def login(
     db: Session = Depends(get_db),
 ):
     check_biometric_rate(request, "face", username)
-    user = _get_user(db, username)
+    user = _get_user(db, username, request)
     templates = _templates_or_404(user)
     if not frames:
         raise HTTPException(status_code=400, detail="Se requiere al menos un frame")
@@ -151,7 +181,7 @@ def login(
     payloads = [f.file.read() for f in frames]
 
     sequence: list[tuple[np.ndarray, np.ndarray] | None] = []
-    feature_list: list[np.ndarray] = []
+    candidates: list[tuple[int, np.ndarray, np.ndarray]] = []
     quality_problem: str | None = None
     for data in payloads:
         try:
@@ -164,13 +194,17 @@ def login(
             sequence.append(None)
             continue
         sequence.append((img, face))
+        if embedder.confidence(face) < MIN_DETECTION_CONFIDENCE:
+            continue
         rect = embedder.face_rect(face, img.shape)
         normalized = detector.normalize_face(img, rect)
-        problem = quality.check(quality.measure(normalized, rect))
+        problem = quality.check(
+            quality.measure(normalized, rect, detector.raw_face(img, rect))
+        )
         if problem is not None:
             quality_problem = problem
             continue
-        feature_list.append(embedder.embed(img, face))
+        candidates.append((len(sequence) - 1, img, face))
 
     result = liveness.analyze(
         sequence,
@@ -183,7 +217,27 @@ def login(
             status_code=400,
             detail="No se detecto la cara en suficientes frames. Asegurate de mirar a la camara.",
         )
-    if not feature_list:
+    moved = result["moved"]
+    thumbs: list[np.ndarray] = []
+    features: list[np.ndarray] = []
+    for idx, img, face in candidates:
+        if moved[idx]:
+            continue
+        rect = embedder.face_rect(face, img.shape)
+        thumb = cv2.resize(detector.raw_face(img, rect), THUMB_SIZE)
+        if _duplicate(thumb, thumbs):
+            continue
+        thumbs.append(thumb)
+        features.append(embedder.embed(img, face))
+    if not features:
+        if result["n_moved"]:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Demasiado movimiento durante la captura. "
+                    "Quedate quieto y repite el parpadeo."
+                ),
+            )
         raise HTTPException(
             status_code=400,
             detail=quality_problem or "Ningun frame tiene calidad suficiente para verificar.",
@@ -194,9 +248,13 @@ def login(
             detail="Captura repetida detectada. Vuelve a grabar el parpadeo.",
         )
 
-    best = max((_best_similarity(f, templates) for f in feature_list), default=0.0)
+    sims = sorted((_best_similarity(f, templates) for f in features), reverse=True)
+    best = sims[0]
+    core = _core_similarity(sims)
     blink = result["blink_detected"]
-    match = best >= settings.face_threshold
+    threshold = settings.face_threshold
+    match = core >= threshold
+    borderline = blink and not match and core >= threshold - BORDERLINE_MARGIN
     verified = blink and match
 
     reason = None
@@ -213,6 +271,11 @@ def login(
             )
         elif not blink:
             reason = "No se detecto parpadeo. Parpadea cuando el portal te lo indique."
+        elif borderline:
+            reason = (
+                "El rostro queda cerca del umbral. Mejora la iluminacion, "
+                "acercate a la camara y repite la captura."
+            )
         else:
             reason = "El rostro no coincide con las plantillas registradas."
 
@@ -222,12 +285,13 @@ def login(
         uuid=str(user.uuid) if verified else None,
         liveness_passed=blink,
         similarity=round(best, 4),
-        threshold=settings.face_threshold,
+        threshold=threshold,
         n_frames=result["n_frames"],
         n_faces=result["n_faces"],
         n_usable=result["n_usable"],
         n_moved=result["n_moved"],
         blink_detected=blink,
+        borderline=borderline,
         access_token=create_session_token(username, "face", str(user.uuid)) if verified else None,
         expires_in=settings.session_expire_minutes * 60 if verified else None,
         reason=reason,
@@ -235,14 +299,16 @@ def login(
 
 
 @router.post("/identify", response_model=FaceIdentifyResponse)
-def identify(image: UploadFile = File(...), db: Session = Depends(get_db)):
+def identify(request: Request, image: UploadFile = File(...), db: Session = Depends(get_db)):
     features = _embedding_from_bytes(image.file.read())
 
-    rows = db.execute(
+    query = (
         select(User.username, User.uuid, FaceTemplate.features)
         .join(FaceTemplate, FaceTemplate.user_id == User.id)
         .where(FaceTemplate.algorithm == ALGORITHM)
-    ).all()
+    )
+    query = scope_user_query(query, request, User)
+    rows = db.execute(query).all()
     if not rows:
         raise HTTPException(status_code=404, detail="No hay usuarios registrados")
 
@@ -265,19 +331,21 @@ def identify(image: UploadFile = File(...), db: Session = Depends(get_db)):
 
 
 @router.get("/templates")
-def list_templates(db: Session = Depends(get_db)):
-    rows = db.execute(
-        select(User.username, FaceTemplate.algorithm, FaceTemplate.id).join(
-            FaceTemplate, FaceTemplate.user_id == User.id
-        )
-    ).all()
+def list_templates(request: Request, db: Session = Depends(get_db)):
+    query = select(User.username, FaceTemplate.algorithm, FaceTemplate.id).join(
+        FaceTemplate, FaceTemplate.user_id == User.id
+    )
+    rows = db.execute(scope_user_query(query, request, User)).all()
     return [{"id": r.id, "username": r.username, "algorithm": r.algorithm} for r in rows]
 
 
 @router.delete("/templates/{template_id}")
-def delete_template(template_id: int, db: Session = Depends(get_db)):
+def delete_template(template_id: int, request: Request, db: Session = Depends(get_db)):
     tpl = db.get(FaceTemplate, template_id)
-    if tpl is None:
+    if tpl is None or (
+        api_client_id(request) is not None
+        and tpl.user.api_client_id != api_client_id(request)
+    ):
         raise HTTPException(status_code=404, detail="Plantilla no encontrada")
     db.delete(tpl)
     db.commit()

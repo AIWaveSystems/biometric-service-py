@@ -8,6 +8,12 @@ sistemas pueden validar.
 Esta pensado como pieza central de identidad: un unico servicio al que se conectan varios
 frontends y varios backends mediante **API keys con permisos**.
 
+!!! warning "Estado: en desarrollo, pre-release 1.0.0 no oficial"
+    No hay release ni tag todavia; `main` recibira el codigo solo cuando sea estable y
+    funcional. La **voz** es el modulo mas refinado. El **rostro** sigue en calibracion
+    de umbral: espera falsos aceptos/rechazos hasta medirlo con tu propia poblacion.
+    Ver [Advertencias de desarrollo](operacion/advertencias.md).
+
 ---
 
 ## Que resuelve

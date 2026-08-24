@@ -111,14 +111,17 @@ flowchart TD
     F -->|yes| G{Burst seen<br/>recently?}
     G -->|yes| E3[409 repeated capture]
     G -->|no| H[EAR blink analysis]
-    H --> I[Maximum similarity<br/>across frames]
-    I --> J{blink AND<br/>similarity >= threshold?}
-    J -->|yes| K[verified true + token]
-    J -->|no| L[verified false + reason]
+    H --> I[Filter frames by confidence,<br/>stability and duplicates]
+    I --> J[Median of the upper half<br/>of the similarities]
+    J --> K{blink AND<br/>median >= threshold?}
+    K -->|yes| L[verified true + token]
+    K -->|no| M[verified false + reason]
 ```
 
-For `verified` to be `true`, **both** conditions must hold: a blink was detected and
-similarity is above the threshold.
+For `verified` to be `true`, **both** conditions must hold: a blink was detected and the
+median of the upper half of the similarities clears the threshold. A single lucky frame
+does not authenticate: repeated frames are collapsed, and blurry, moving or weakly
+detected ones are excluded before scoring.
 
 ### Response
 
@@ -135,6 +138,7 @@ similarity is above the threshold.
   "n_usable": 24,
   "n_moved": 3,
   "blink_detected": true,
+  "borderline": false,
   "access_token": "eyJhbGciOiJIUzI1NiIs...",
   "token_type": "bearer",
   "expires_in": 900,
@@ -147,8 +151,9 @@ similarity is above the threshold.
 | `n_frames` | Frames received |
 | `n_faces` | Frames with a detected face |
 | `n_usable` | Stable frames used to measure the blink |
-| `n_moved` | Frames discarded for excessive movement |
-| `similarity` | **Maximum** across all frames and all templates |
+| `n_moved` | Frames discarded for excessive movement or face swap |
+| `similarity` | Best similarity after filtering; the decision uses the upper-half median, not this maximum |
+| `borderline` | `true` when liveness passed but the capture landed within `0.03` of the threshold: retry with better light |
 | `reason` | Human-readable explanation when `verified` is `false` |
 
 ### Rejection reasons
@@ -160,6 +165,7 @@ similarity is above the threshold.
 | Face detected in few frames | *Solo se te detecto en N de M frames. Mira de frente a la camara sin girar la cabeza durante la captura.* |
 | Too much movement | *Hubo demasiado movimiento durante la captura. Quedate quieto y parpadea cuando el portal te lo indique.* |
 | No blink | *No se detecto parpadeo. Parpadea cuando el portal te lo indique.* |
+| Near the threshold (`borderline`) | *El rostro queda cerca del umbral. Mejora la iluminacion, acercate a la camara y repite la captura.* |
 | Identity mismatch | *El rostro no coincide con las plantillas registradas.* |
 
 The first three are capture problems, not identity problems: the right frontend action is

@@ -30,7 +30,7 @@ flowchart LR
 Face login needs to see a blink. You must record a sequence, not a photo.
 
 ```javascript
-async function captureBurst(video, nFrames = 28, intervalMs = 90) {
+async function captureBurst(video, nFrames = 34, intervalMs = 90) {
   const canvas = document.createElement('canvas');
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
@@ -49,7 +49,9 @@ async function captureBurst(video, nFrames = 28, intervalMs = 90) {
 }
 ```
 
-28 frames every 90 ms is about 2.6 seconds, plenty of time for a natural blink.
+34 frames every 90 ms is about 3 seconds: a wide window so a natural blink fits even
+when the person is slow to react to the prompt. More frames do not improve identity
+accuracy (duplicates collapse server-side); they only give the blink room to happen.
 
 ### Request the camera
 
@@ -68,12 +70,13 @@ await video.play();
 ### Prompt for the blink
 
 Without a visible instruction, most people do not blink during the capture and the login
-fails with `blink_detected: false`.
+fails with `blink_detected: false`. The prompt must exist **before** the capture starts:
+people take a moment to react, and a banner fired mid-burst arrives too late.
 
 ```javascript
 async function faceLogin(video, username, banner) {
-  banner.textContent = 'Look at the camera...';
-  await new Promise((r) => setTimeout(r, 600));
+  banner.textContent = 'Look at the camera and BLINK when you see the prompt';
+  await new Promise((r) => setTimeout(r, 800));
 
   const capture = captureBurst(video);
 
@@ -95,9 +98,10 @@ async function faceLogin(video, username, banner) {
 }
 ```
 
-!!! tip "The mid-capture prompt"
-    Firing the banner at 900 ms leaves eyes-open frames both before and after the blink,
-    which is exactly what the EAR detector needs to measure the transition.
+!!! tip "Prompt before and during the capture"
+    The advance instruction prepares the person; the banner at 900 ms triggers the blink
+    leaving eyes-open frames before and after it, which is exactly what the EAR detector
+    needs to measure the transition.
 
 ---
 

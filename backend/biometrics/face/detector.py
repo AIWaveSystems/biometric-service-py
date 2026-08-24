@@ -27,6 +27,15 @@ def find_face_rect(img: np.ndarray) -> tuple[int, int, int, int] | None:
     return embedder.face_rect(face, img.shape)
 
 
+def raw_face(
+    img: np.ndarray,
+    rect: tuple[int, int, int, int],
+) -> np.ndarray:
+    gray = to_gray(img)
+    x, y, w, h = rect
+    return gray[y : y + h, x : x + w]
+
+
 def normalize_face(
     img: np.ndarray,
     rect: tuple[int, int, int, int],
