@@ -1212,10 +1212,10 @@ function buildEditor(u, refrescar) {
   const fRostro = fila(rostro);
   const inFotos = document.createElement("input");
   inFotos.type = "file";
-  inFotos.accept = "image/*";
+  inFotos.accept = "image/jpeg,image/png,.jpg,.jpeg,.png";
   inFotos.multiple = true;
   inFotos.setAttribute("aria-label", "Elegir fotos de rostro");
-  inFotos.title = "Elige una o varias fotos de rostro";
+  inFotos.title = "Elige una o varias fotos de rostro (solo JPG o PNG)";
   fRostro.appendChild(inFotos);
   fRostro.appendChild(
     boton("Subir fotos", "primary", async () => {
@@ -1227,7 +1227,8 @@ function buildEditor(u, refrescar) {
       ok(
         `Añadidas ${r.added} plantilla(s). Total: ${r.total_templates}.` +
           (r.redundant ? ` ${r.redundant} descartada(s) por redundancia.` : "") +
-          (r.without_face ? ` ${r.without_face} sin cara detectable.` : "")
+          (r.without_face ? ` ${r.without_face} sin cara detectable.` : "") +
+          (r.unreadable ? ` ${r.unreadable} ilegible(s) ignorada(s) (usa JPG o PNG).` : "")
       );
     })
   );
