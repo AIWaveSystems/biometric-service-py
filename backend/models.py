@@ -26,6 +26,10 @@ class User(Base):
         Uuid, unique=True, index=True, default=uuid4, nullable=False
     )
     username: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    api_client_id: Mapped[int | None] = mapped_column(
+        ForeignKey("api_clients.id"), nullable=True, index=True
+    )
+    api_client: Mapped["ApiClient | None"] = relationship(back_populates="users")
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -71,6 +75,7 @@ class ApiClient(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    users: Mapped[list[User]] = relationship(back_populates="api_client")
 
     @property
     def scope_list(self) -> list[str]:
