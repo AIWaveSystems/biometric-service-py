@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: biometrico
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-biometrico}
+      POSTGRES_DB: auth-biometric
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U biometrico"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg2://biometrico:${POSTGRES_PASSWORD:-biometrico}@db:5432/auth-biometric
+      JWT_SECRET: ${JWT_SECRET:-cambia-este-secreto-por-uno-largo}
+      API_KEY_PEPPER: ${API_KEY_PEPPER:-}
+      PORTAL_USER: ${PORTAL_USER:-admin}
+      PORTAL_PASSWORD: ${PORTAL_PASSWORD:-admin123}
+    ports:
+      - "${PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

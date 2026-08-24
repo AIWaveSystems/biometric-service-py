@@ -67,31 +67,30 @@ def main(root: Path) -> None:
         if len(loaded) >= 2:
             feats[name] = loaded
 
-    z_gen, z_imp, r_gen, r_imp = [], [], [], []
+    if len(feats) < 3:
+        print("\nAviso: con menos de 3 locutores el UBM no es representativo.")
+
+    llr_gen, llr_imp = [], []
+    z_gen, z_imp = [], []
     for name, takes in feats.items():
-        enroll_feat = takes[0]
-        model, mean, sigma = pipeline.enroll(enroll_feat)
-        cohort = pipeline.voice_service.cohort_gmm(
-            [t for other, ts in feats.items() if other != name for t in ts]
-        )
+        background = [t for other, ts in feats.items() if other != name for t in ts]
+        ubm = pipeline.fit_ubm(background)
+        model, mean, sigma = pipeline.enroll(takes[0])
+        adapted = ubm.map_adapt(takes[0], relevance=pipeline.MAP_RELEVANCE) if ubm else None
+
         for other, other_takes in feats.items():
             probes = other_takes[1:] if other == name else other_takes
             for probe in probes:
-                _, z, ratio, _ = pipeline.voice_service.verify(
-                    model, mean, sigma, cohort, probe
-                )
-                if other == name:
-                    z_gen.append(z)
-                    if ratio is not None:
-                        r_gen.append(ratio)
-                else:
-                    z_imp.append(z)
-                    if ratio is not None:
-                        r_imp.append(ratio)
+                _, z, _, _ = pipeline.voice_service.verify(model, mean, sigma, None, probe)
+                (z_gen if other == name else z_imp).append(z)
+                if adapted is not None:
+                    llr = pipeline.voice_service.verify_ubm(adapted, ubm, probe)
+                    (llr_gen if other == name else llr_imp).append(llr)
 
-    report("z-score (VOICE_Z_THRESHOLD)", z_gen, z_imp, -2.5)
-    report("ratio de cohorte (VOICE_RATIO_THRESHOLD)", r_gen, r_imp, -3.0)
-    print("\nCopia los umbrales EER a tu .env y vuelve a ejecutar para confirmar.")
+    report("LLR contra UBM (VOICE_LLR_THRESHOLD)", llr_gen, llr_imp, 1.2)
+    report("z-score, modo reserva (VOICE_Z_THRESHOLD)", z_gen, z_imp, -2.5)
+    print("\nCopia el umbral EER del LLR a VOICE_LLR_THRESHOLD en tu .env.")
+    print("Para un portal, subelo por encima del EER: prioriza FAR bajo sobre comodidad.")
 
 
 if __name__ == "__main__":

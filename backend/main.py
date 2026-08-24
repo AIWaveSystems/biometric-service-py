@@ -3,15 +3,21 @@ from binascii import Error as B64Error
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .api_clients import resolve_api_key
+from .biometrics.face import embedder
+from .biometrics.face import landmarks as face_landmarks
 from .config import settings
-from .database import Base, engine
-from .routers import auth, face, portal, users, voice
+from .database import Base, SessionLocal, engine, get_db
+from .routers import auth, clients, face, portal, users, voice
+from .routers.portal import ensure_bootstrap_user
 from .security import SCOPE_PORTAL, constant_time_equals, decode_token
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -19,6 +25,35 @@ STATIC_DIR = BASE_DIR / "static"
 
 DOCS_PATHS = {"/docs", "/redoc", "/openapi.json"}
 OPEN_API_PATHS = {"/api/portal/auth"}
+
+SCOPE_ENROLL = "enroll"
+SCOPE_AUTH = "auth"
+SCOPE_ADMIN = "admin"
+
+ENROLL_PATHS = {
+    "/api/users/register",
+    "/api/face/register",
+    "/api/voice/register",
+    "/api/voice/digits/enroll",
+}
+ADMIN_PREFIXES = ("/api/clients", "/api/portal/users")
+ADMIN_PATHS = {"/api/users", "/api/face/templates", "/api/voice/templates", "/api/voice/system"}
+
+
+def required_scope(method: str, path: str) -> str:
+    if path in ENROLL_PATHS:
+        return SCOPE_ENROLL
+    if path.startswith("/api/users/") and path.endswith("/faces"):
+        return SCOPE_ENROLL
+    if path.startswith("/api/users/") and path.endswith(("/password", "/rename")):
+        return SCOPE_ADMIN
+    if path.startswith(ADMIN_PREFIXES):
+        return SCOPE_ADMIN
+    if path in ADMIN_PATHS or path.startswith(("/api/face/templates/", "/api/voice/templates/")):
+        return SCOPE_ADMIN
+    if method == "DELETE" and path.startswith(("/api/users/", "/api/voice/digits/")):
+        return SCOPE_ADMIN
+    return SCOPE_AUTH
 
 
 @asynccontextmanager
@@ -34,7 +69,17 @@ async def lifespan(app: FastAPI):
     ]
     if missing:
         raise RuntimeError(f"Faltan variables en el archivo .env: {', '.join(missing)}")
+    if not (embedder.available() and face_landmarks.available()):
+        raise RuntimeError(
+            "Faltan los modelos ONNX de reconocimiento facial. "
+            "Ejecuta: python scripts/fetch_models.py"
+        )
     Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        ensure_bootstrap_user(db)
+    finally:
+        db.close()
     yield
 
 
@@ -73,11 +118,35 @@ class PortalApiAuth(BaseHTTPMiddleware):
         if path in OPEN_API_PATHS:
             return await call_next(request)
 
+        api_key = request.headers.get("X-API-Key", "")
+        if api_key:
+            db = SessionLocal()
+            try:
+                resolved = await run_in_threadpool(resolve_api_key, db, api_key)
+            finally:
+                db.close()
+            if resolved is None:
+                return JSONResponse({"detail": "API key invalida"}, status_code=401)
+            client_id, prefix, scopes = resolved
+            needed = required_scope(request.method, path)
+            if needed not in scopes:
+                return JSONResponse(
+                    {"detail": f"La API key no tiene el permiso '{needed}'"}, status_code=403
+                )
+            request.state.client_id = client_id
+            request.state.client_prefix = prefix
+            request.state.principal = f"apikey:{prefix}"
+            return await call_next(request)
+
         header = request.headers.get("Authorization", "")
         if not header.startswith("Bearer "):
             return JSONResponse({"detail": "Acceso no autorizado"}, status_code=401)
-        if decode_token(header[7:], expected_scope=SCOPE_PORTAL) is None:
+        payload = decode_token(header[7:], expected_scope=SCOPE_PORTAL)
+        if payload is None:
             return JSONResponse({"detail": "Acceso no autorizado"}, status_code=401)
+        request.state.client_id = None
+        request.state.client_prefix = "portal"
+        request.state.principal = str(payload.get("sub", "portal"))
         return await call_next(request)
 
 
@@ -91,14 +160,37 @@ if _origins:
         allow_origins=_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "X-API-Key"],
     )
 
 app.include_router(portal.router)
+app.include_router(clients.router)
 app.include_router(face.router)
 app.include_router(voice.router)
 app.include_router(users.router)
 app.include_router(auth.router)
+
+
+@app.get("/health")
+def health(db=Depends(get_db)):
+    db_ok = False
+    try:
+        db.execute(text("SELECT 1"))
+        db_ok = True
+    except Exception:
+        pass
+    models_ok = embedder.available() and face_landmarks.available()
+    status = "ok" if db_ok and models_ok else "degraded"
+    code = 200 if status == "ok" else 503
+    return JSONResponse(
+        {
+            "status": status,
+            "database": db_ok,
+            "face_models": models_ok,
+            "version": app.version,
+        },
+        status_code=code,
+    )
 
 
 @app.get("/")

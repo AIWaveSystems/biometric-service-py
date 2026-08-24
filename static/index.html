@@ -18,7 +18,7 @@
         </svg>
       </div>
       <h2>Acceso al portal</h2>
-      <p>Introduce tus credenciales para continuar</p>
+      <p>Introduce tus credenciales de operador</p>
       <div class="field">
         <label>Usuario</label>
         <input type="text" id="gate-user" autocomplete="username" placeholder="usuario" />
@@ -45,6 +45,9 @@
         <button class="tab active" data-tab="login">Iniciar sesión</button>
         <button class="tab" data-tab="registro">Registrarse</button>
         <button class="tab" data-tab="gestion">Gestión</button>
+        <button class="tab" data-tab="clientes">API keys</button>
+        <button class="tab" data-tab="operadores">Operadores</button>
+        <span id="whoami" class="whoami"></span>
         <button id="logout-btn" class="btn ghost">Salir</button>
       </nav>
     </header>
@@ -62,6 +65,7 @@
             <option value="password">Contraseña</option>
             <option value="face">Rostro</option>
             <option value="voice">Voz</option>
+            <option value="challenge">Voz + dígitos (anti-grabación)</option>
             <option value="both">Rostro + Voz</option>
           </select>
         </div>
@@ -72,7 +76,10 @@
 
         <div class="sensor-grid">
           <div class="sensor" id="login-face-sensor" hidden>
-            <video id="login-video" autoplay playsinline muted></video>
+            <div class="video-wrap">
+              <video id="login-video" autoplay playsinline muted></video>
+              <div id="login-cue" class="cue" hidden></div>
+            </div>
             <canvas id="login-canvas" hidden></canvas>
             <div class="sensor-actions">
               <button id="login-take-photo" class="btn">
@@ -106,6 +113,29 @@
             <div class="playback" id="login-playback" hidden>
               <label>Revisa tu grabación antes de entrar</label>
               <audio id="login-audio" controls preload="metadata"></audio>
+            </div>
+          </div>
+          <div class="sensor" id="login-challenge-sensor" hidden>
+            <div class="digit-stage">
+              <div id="challenge-cue" class="digit-cue">···</div>
+            </div>
+            <p class="hint">
+              El servidor elige los dígitos en el momento. Dilos en voz alta uno a uno,
+              cada vez que aparezca uno, y calla entre dígito y dígito.
+            </p>
+            <div class="sensor-actions">
+              <button id="login-challenge" class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <span>Pedir dígitos y grabar</span>
+              </button>
+              <span id="login-challenge-state" class="state">Sin desafío</span>
+            </div>
+            <div class="playback" id="challenge-playback" hidden>
+              <label>Revisa tu grabación antes de entrar</label>
+              <audio id="challenge-audio" controls preload="metadata"></audio>
             </div>
           </div>
         </div>
@@ -190,24 +220,244 @@
           <span>Registrar</span>
         </button>
         <div id="reg-result" class="result"></div>
+
+        <h3>Matrícula de dígitos (opcional)</h3>
+        <p class="hint">
+          Necesaria solo para el método <strong>Voz + dígitos</strong>. El usuario ya
+          debe existir y tener plantilla de voz. Dirás los diez dígitos, del 0 al 9,
+          uno a uno con una pausa entre cada uno. Sin esto el login por voz sigue
+          funcionando igual que siempre, pero acepta una grabación previa.
+        </p>
+        <div class="sensor">
+          <div class="digit-stage">
+            <div id="enroll-cue" class="digit-cue">···</div>
+          </div>
+          <div class="sensor-actions">
+            <button id="enroll-digits" class="btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"></circle>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <span>Grabar los 10 dígitos</span>
+            </button>
+            <span id="enroll-digits-state" class="state">Sin matrícula</span>
+          </div>
+          <div class="playback" id="enroll-playback" hidden>
+            <label>Escucha la toma antes de subirla</label>
+            <audio id="enroll-audio" controls preload="metadata"></audio>
+          </div>
+          <div class="sensor-actions">
+            <button id="enroll-digits-send" class="btn primary" disabled>
+              <span>Subir matrícula</span>
+            </button>
+          </div>
+        </div>
+        <div id="enroll-digits-result" class="result"></div>
       </section>
 
       <section id="tab-gestion" class="panel">
         <h2>Usuarios registrados</h2>
-        <button id="refresh-users" class="btn">
+        <div id="voice-system-banner" class="system-banner" hidden></div>
+        <div class="sensor" id="analizar-voz">
+          <h3>Analizar una voz</h3>
+          <p class="hint">
+            Graba y pregunta <strong>a quién se parece</strong> sin registrar nada.
+            Úsalo cuando una matrícula se rechace por duplicada y no entiendas por qué:
+            aquí ves la similitud contra cada cuenta y puedes descargar el audio para
+            escucharlo tal cual lo recibió el servidor.
+          </p>
+          <div class="sensor-actions">
+            <button id="analizar-btn" class="btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"></circle>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <span>Grabar y analizar (5s)</span>
+            </button>
+            <span id="analizar-state" class="state">Sin analizar</span>
+          </div>
+          <div class="playback" id="analizar-playback" hidden>
+            <label>La grabación tal cual se envió</label>
+            <audio id="analizar-audio" controls preload="metadata"></audio>
+            <p class="hint"><a id="analizar-descargar" download="voz.wav">Descargar este WAV</a></p>
+          </div>
+          <div id="analizar-result" class="result"></div>
+        </div>
+
+        <div class="toolbar list-controls" data-list="users">
+          <input type="search" id="users-search" placeholder="Buscar usuario" />
+          <select id="users-sort">
+            <option value="username">Nombre</option>
+            <option value="created_at">Fecha de alta</option>
+          </select>
+          <select id="users-direction" aria-label="Dirección del orden">
+            <option value="asc">Ascendente</option>
+            <option value="desc">Descendente</option>
+          </select>
+          <button id="refresh-users" class="btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"></polyline>
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
           </svg>
           <span>Actualizar</span>
-        </button>
+          </button>
+        </div>
+        <div id="users-pagination" class="pagination"></div>
         <table id="users-table">
           <thead>
             <tr>
               <th>Usuario</th>
+              <th>Owner</th>
               <th>Contraseña</th>
               <th>Rostro</th>
               <th>Voz</th>
+              <th>Dígitos</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section id="tab-clientes" class="panel">
+        <h2>Clientes API (integraciones externas)</h2>
+        <p class="intro">Las aplicaciones externas envían el header <code>X-API-Key</code> en cada solicitud. Cada clave tiene permisos (<em>scopes</em>) que limitan qué endpoints puede usar.</p>
+
+        <div class="admin-grid">
+          <div class="admin-card">
+            <h3>Nueva API key</h3>
+            <div class="field">
+              <label>Nombre del cliente</label>
+              <input type="text" id="client-name" placeholder="ej. app-movil-prod" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label>Permisos</label>
+              <div class="scope-list">
+                <label class="scope-opt"><input type="checkbox" id="scope-auth" checked /> auth — login y verificación</label>
+                <label class="scope-opt"><input type="checkbox" id="scope-enroll" /> enroll — registro biométrico</label>
+                <label class="scope-opt"><input type="checkbox" id="scope-admin" /> admin — gestión y plantillas</label>
+              </div>
+            </div>
+            <div class="field">
+              <label>Validez (días, vacío = predeterminado)</label>
+              <input type="number" id="client-days" min="1" max="3650" placeholder="365" />
+            </div>
+            <button id="client-create-btn" class="btn primary full">Generar API key</button>
+            <div id="client-create-result" class="result" hidden></div>
+          </div>
+
+          <div class="admin-card">
+            <h3>Uso desde tu backend</h3>
+            <pre class="code-block" id="client-example"></pre>
+            <p class="hint">El portal usa JWT (<code>Authorization: Bearer</code>). Las integraciones externas usan <code>X-API-Key</code>. No mezcles ambos en la misma petición.</p>
+            <table class="scope-table">
+              <thead><tr><th>Permiso</th><th>Endpoints</th></tr></thead>
+              <tbody>
+                <tr><td>auth</td><td>/api/auth/login, /api/face/*, /api/voice/verify</td></tr>
+                <tr><td>enroll</td><td>/api/users/register, /api/face/register, /api/voice/register</td></tr>
+                <tr><td>admin</td><td>/api/clients, /api/portal/users, /api/users (GET/DELETE), plantillas</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="toolbar list-controls" data-list="clients">
+          <input type="search" id="clients-search" placeholder="Buscar cliente" />
+          <select id="clients-sort">
+            <option value="name">Nombre</option>
+            <option value="created_at">Fecha de alta</option>
+            <option value="expires_at">Expiración</option>
+            <option value="last_used_at">Último uso</option>
+          </select>
+          <select id="clients-direction" aria-label="Dirección del orden">
+            <option value="asc">Ascendente</option>
+            <option value="desc">Descendente</option>
+          </select>
+          <button id="refresh-clients" class="btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            <span>Actualizar</span>
+          </button>
+        </div>
+        <div id="clients-pagination" class="pagination"></div>
+        <table id="clients-table">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Prefijo</th>
+              <th>Permisos</th>
+              <th>Estado</th>
+              <th>Expira</th>
+              <th>Último uso</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section id="tab-operadores" class="panel">
+        <h2>Operadores del portal</h2>
+        <p class="intro">Estos usuarios acceden a este panel con usuario y contraseña. Son distintos de los usuarios finales que se autentican con biometría.</p>
+
+        <div class="admin-grid">
+          <div class="admin-card">
+            <h3>Nuevo operador</h3>
+            <div class="field">
+              <label>Usuario</label>
+              <input type="text" id="op-username" placeholder="ej. admin-soporte" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label>Contraseña (mín. 8 caracteres)</label>
+              <input type="password" id="op-password" autocomplete="new-password" />
+            </div>
+            <button id="op-create-btn" class="btn primary full">Crear operador</button>
+            <div id="op-create-result" class="result" hidden></div>
+          </div>
+
+          <div class="admin-card">
+            <h3>Cambiar mi contraseña</h3>
+            <div class="field">
+              <label>Contraseña actual</label>
+              <input type="password" id="op-current-pass" autocomplete="current-password" />
+            </div>
+            <div class="field">
+              <label>Nueva contraseña</label>
+              <input type="password" id="op-new-pass" autocomplete="new-password" />
+            </div>
+            <button id="op-change-pass-btn" class="btn full">Actualizar contraseña</button>
+            <div id="op-pass-result" class="result" hidden></div>
+          </div>
+        </div>
+
+        <div class="toolbar list-controls" data-list="operators">
+          <input type="search" id="operators-search" placeholder="Buscar operador" />
+          <select id="operators-sort">
+            <option value="username">Nombre</option>
+            <option value="created_at">Fecha de alta</option>
+            <option value="last_login_at">Último acceso</option>
+          </select>
+          <select id="operators-direction" aria-label="Dirección del orden">
+            <option value="asc">Ascendente</option>
+            <option value="desc">Descendente</option>
+          </select>
+          <button id="refresh-operators" class="btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            <span>Actualizar</span>
+          </button>
+        </div>
+        <div id="operators-pagination" class="pagination"></div>
+        <table id="operators-table">
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Estado</th>
+              <th>Último acceso</th>
               <th>Acciones</th>
             </tr>
           </thead>

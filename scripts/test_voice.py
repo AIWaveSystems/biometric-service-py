@@ -2,12 +2,11 @@ import sys
 
 sys.path.insert(0, ".")
 
-import numpy as np
 
 from backend.biometrics.voice import pipeline, wav
 from scripts.synth import synthesize_speaker
 
-SPEAKERS = [("A", 110.0, 0.9), ("B", 180.0, 0.5)]
+SPEAKERS = [("A", 110.0, 0.9), ("B", 180.0, 0.5), ("C", 240.0, 0.3)]
 Z_THRESHOLD = -2.5
 RATIO_THRESHOLD = -3.0
 

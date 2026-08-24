@@ -1,0 +1,230 @@
+# Usuarios
+
+Prefijo: `/api/users`
+
+Un usuario es la identidad a la que se cuelgan las plantillas biometricas. Puede tener
+plantillas faciales (varias), plantilla de voz (una), digitos matriculados y contrasena.
+Cualquier combinacion es valida.
+
+---
+
+## Crear un usuario
+
+```http
+POST /api/users/register
+```
+
+**Permiso:** `enroll` · **Formato:** `multipart/form-data`
+
+| Campo | Tipo | Obligatorio | Descripcion |
+| --- | --- | --- | --- |
+| `username` | texto | si | 3 a 100 caracteres, unico |
+| `password` | texto | no | 6 a 128 caracteres |
+| `image` | archivo | no | Una foto |
+| `images` | archivo[] | no | Varias fotos, repitiendo el campo |
+| `audio` | archivo | no | WAV con la voz |
+
+Hace falta **al menos una** de las tres cosas: foto, audio o contrasena. Si no llega
+ninguna, la respuesta es 400.
+
+```bash
+curl -X POST http://localhost:8000/api/users/register \
+  -H "X-API-Key: $API_KEY" \
+  -F "username=ana" \
+  -F "password=clave-larga" \
+  -F "images=@a1.jpg" -F "images=@a2.jpg" -F "images=@a3.jpg" \
+  -F "audio=@ana.wav"
+```
+
+```json
+{
+  "username": "ana",
+  "uuid": "8c1e4f2a-...",
+  "has_password": true,
+  "face_templates": [
+    {"id": 12, "algorithm": "sface"},
+    {"id": 13, "algorithm": "sface"}
+  ],
+  "voice_templates": [
+    {"id": 4, "algorithm": "mfcc-gmm", "duration_seconds": 7.3}
+  ],
+  "digits": [],
+  "digits_challenge_ready": false,
+  "digits_cmvn_ok": false
+}
+```
+
+!!! note "Fotos redundantes"
+    En el ejemplo se enviaron tres fotos y solo se guardaron dos plantillas: la tercera era
+    casi identica a otra. El servicio descarta las redundantes en silencio para no llenar
+    la base de vectores que no aportan variedad.
+
+**Errores posibles**
+
+| Codigo | Cuando |
+| --- | --- |
+| 400 | No llego ninguna biometria ni contrasena |
+| 400 | Ninguna foto tiene cara detectable o suficiente calidad |
+| 409 | El nombre de usuario ya existe |
+| 409 | La voz ya esta matriculada en otra cuenta (ver [Voz](voz.md#control-de-duplicados)) |
+
+---
+
+## Listar usuarios
+
+```http
+GET /api/users
+```
+
+**Permiso:** `admin`
+
+Devuelve un array con el mismo objeto que `register`, uno por usuario. Util para poblar un
+panel de administracion.
+
+```json
+[
+  {
+    "username": "ana",
+    "uuid": "8c1e4f2a-...",
+    "has_password": true,
+    "face_templates": [{"id": 12, "algorithm": "sface"}],
+    "voice_templates": [{"id": 4, "algorithm": "mfcc-gmm", "duration_seconds": 7.3}],
+    "digits": ["0","1","2","3","4","5","6","7","8","9"],
+    "digits_challenge_ready": true,
+    "digits_cmvn_ok": true
+  }
+]
+```
+
+| Campo | Significado |
+| --- | --- |
+| `digits_challenge_ready` | Tiene digitos suficientes y con CMVN guardada: puede recibir desafios |
+| `digits_cmvn_ok` | La matricula de digitos es de la version actual, no una antigua |
+
+---
+
+## Consultar por UUID
+
+```http
+GET /api/users/by-uuid/{user_uuid}
+```
+
+**Permiso:** `auth`
+
+Mismo objeto que arriba. Pensado para sistemas cliente que guardan el UUID y no el nombre,
+que es lo recomendable: el nombre puede cambiar, el UUID no.
+
+**404** si no existe.
+
+---
+
+## Anadir fotos a un usuario existente
+
+```http
+POST /api/users/{username}/faces
+```
+
+**Permiso:** `enroll` · **Formato:** `multipart/form-data`
+
+| Campo | Tipo | Descripcion |
+| --- | --- | --- |
+| `image` | archivo | Una foto |
+| `images` | archivo[] | Varias fotos |
+
+Las plantillas se **acumulan**: no borra las anteriores. Cada foto pasa por tres filtros
+antes de guardarse.
+
+```mermaid
+flowchart LR
+    A[Foto] --> B{Hay cara?}
+    B -->|no| X1[sin cara]
+    B -->|si| C{Calidad<br/>suficiente?}
+    C -->|no| X2[rechazada]
+    C -->|si| D{Redundante con<br/>las que ya hay?}
+    D -->|si| X3[descartada]
+    D -->|no| E[Plantilla guardada]
+```
+
+```json
+{
+  "username": "ana",
+  "uuid": "8c1e4f2a-...",
+  "added": 4,
+  "redundant": 2,
+  "without_face": 1,
+  "total_templates": 9
+}
+```
+
+Si `added` es 0 la respuesta es **400** con el motivo concreto: problema de calidad, todas
+redundantes, o ninguna cara detectada.
+
+!!! tip "Cuantas fotos"
+    Entre 8 y 12 plantillas por persona, variando gesto, angulo, gafas e iluminacion.
+    Enviar mas fotos de la misma pose no ayuda: se descartan por redundantes.
+
+---
+
+## Cambiar o quitar la contrasena
+
+```http
+POST /api/users/{username}/password
+```
+
+**Permiso:** `admin` · **Formato:** `multipart/form-data`
+
+| Campo | Descripcion |
+| --- | --- |
+| `password` | Nueva contrasena, 6 caracteres o mas. **Vacio o ausente la elimina** |
+
+```json
+{"username": "ana", "uuid": "8c1e4f2a-...", "has_password": false}
+```
+
+Enviar el campo vacio deja al usuario solo con biometria. Es intencionado, no un error.
+
+---
+
+## Renombrar
+
+```http
+POST /api/users/{username}/rename
+```
+
+**Permiso:** `admin` · **Formato:** `multipart/form-data`
+
+| Campo | Descripcion |
+| --- | --- |
+| `new_username` | Nombre nuevo, 3 a 100 caracteres |
+
+```json
+{"username": "ana.gomez", "previous": "ana", "uuid": "8c1e4f2a-..."}
+```
+
+**El UUID no cambia.** Las plantillas, digitos y contrasena se conservan.
+
+| Codigo | Cuando |
+| --- | --- |
+| 400 | El nombre nuevo es igual al actual |
+| 409 | Ya existe otro usuario con ese nombre |
+
+!!! warning "Guarda el UUID, no el nombre"
+    Si tu sistema referencia usuarios por nombre, un renombrado le rompe las referencias.
+    El UUID es estable durante toda la vida de la cuenta.
+
+---
+
+## Borrar
+
+```http
+DELETE /api/users/{username}
+```
+
+**Permiso:** `admin`
+
+Borra el usuario y, en cascada, sus plantillas faciales, su plantilla de voz y sus digitos
+matriculados.
+
+!!! danger "No hay papelera"
+    La operacion es inmediata y definitiva. Volver a dar de alta a la persona exige
+    repetir toda la matricula biometrica.

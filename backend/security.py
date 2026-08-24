@@ -1,36 +1,64 @@
 import hashlib
 import hmac
+import secrets
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 
 import jwt
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
 
 from .config import settings
+from .models import VoiceChallenge
 
 SCOPE_PORTAL = "portal"
 SCOPE_USER = "user"
 
+API_KEY_PREFIX_BYTES = 6
+API_KEY_SECRET_BYTES = 32
+API_KEY_LABEL = "lbs"
 
-def _encode(subject: str, scope: str, minutes: int) -> str:
+
+def hash_api_secret(secret: str) -> str:
+    pepper = settings.api_key_pepper or settings.jwt_secret
+    return hmac.new(pepper.encode("utf-8"), secret.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def generate_api_key() -> tuple[str, str, str]:
+    prefix = secrets.token_hex(API_KEY_PREFIX_BYTES)
+    secret = secrets.token_urlsafe(API_KEY_SECRET_BYTES)
+    return f"{API_KEY_LABEL}_{prefix}_{secret}", prefix, hash_api_secret(secret)
+
+
+def parse_api_key(raw: str) -> tuple[str, str] | None:
+    parts = raw.strip().split("_", 2)
+    if len(parts) != 3 or parts[0] != API_KEY_LABEL or not parts[1] or not parts[2]:
+        return None
+    return parts[1], parts[2]
+
+
+def verify_api_secret(secret: str, expected_hash: str) -> bool:
+    return hmac.compare_digest(hash_api_secret(secret), expected_hash)
+
+
+def create_portal_token(username: str = "portal", user_uuid: str | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
-        "sub": subject,
-        "scope": scope,
+        "sub": username,
+        "uid": user_uuid,
+        "scope": SCOPE_PORTAL,
         "iat": now,
-        "exp": now + timedelta(minutes=minutes),
+        "exp": now + timedelta(minutes=settings.jwt_expire_minutes),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def create_portal_token() -> str:
-    return _encode("portal", SCOPE_PORTAL, settings.jwt_expire_minutes)
-
-
-def create_session_token(username: str, method: str) -> str:
+def create_session_token(username: str, method: str, user_uuid: str | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": username,
+        "uid": user_uuid,
         "scope": SCOPE_USER,
         "method": method,
         "iat": now,
@@ -103,5 +131,48 @@ class RateLimiter:
         return True
 
 
+class ChallengeStore:
+    def __init__(self, ttl_seconds: int):
+        self._ttl = ttl_seconds
+
+    def _purge_expired(self, db: Session) -> None:
+        cutoff = datetime.utcnow() - timedelta(seconds=self._ttl)
+        db.execute(delete(VoiceChallenge).where(VoiceChallenge.created_at < cutoff))
+        db.commit()
+
+    def issue(self, db: Session, username: str, digits: tuple[str, ...]) -> tuple[str, int]:
+        self._purge_expired(db)
+        token = secrets.token_urlsafe(24)
+        db.add(
+            VoiceChallenge(
+                token=token,
+                username=username,
+                digits=",".join(digits),
+            )
+        )
+        db.commit()
+        return token, self._ttl
+
+    def consume(self, db: Session, token: str, username: str) -> tuple[str, ...] | None:
+        self._purge_expired(db)
+        row = db.execute(
+            select(VoiceChallenge)
+            .where(VoiceChallenge.token == token)
+            .with_for_update()
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        cutoff = datetime.utcnow() - timedelta(seconds=self._ttl)
+        if row.created_at < cutoff or not constant_time_equals(row.username, username):
+            db.delete(row)
+            db.commit()
+            return None
+        digits = tuple(d.strip() for d in row.digits.split(",") if d.strip())
+        db.delete(row)
+        db.commit()
+        return digits
+
+
 replay_guard = ReplayGuard(settings.replay_window_seconds)
 auth_limiter = RateLimiter(settings.auth_rate_limit, settings.auth_rate_window_seconds)
+challenge_store = ChallengeStore(settings.voice_challenge_ttl_seconds)

@@ -83,6 +83,30 @@ class GMM:
             prev = ll
         return self
 
+    # ---- adaptacion MAP ----
+
+    def copy(self) -> "GMM":
+        clone = GMM(self.n_components)
+        clone.weights = None if self.weights is None else self.weights.copy()
+        clone.means = None if self.means is None else self.means.copy()
+        clone.covars = None if self.covars is None else self.covars.copy()
+        clone.dim = self.dim
+        return clone
+
+    def map_adapt(self, X: np.ndarray, relevance: float = 16.0) -> "GMM":
+        X = np.asarray(X, dtype=np.float64)
+        logr = self._log_gauss(X) + np.log(self.weights)[None, :]
+        resp = np.exp(logr - np.logaddexp.reduce(logr, axis=1, keepdims=True))
+
+        counts = resp.sum(axis=0)
+        safe = np.maximum(counts, 1e-8)
+        centroids = (resp.T @ X) / safe[:, None]
+        alpha = (counts / (counts + relevance))[:, None]
+
+        adapted = self.copy()
+        adapted.means = alpha * centroids + (1.0 - alpha) * self.means
+        return adapted
+
     # ---- scoring ----
 
     def score(self, X: np.ndarray) -> np.ndarray:

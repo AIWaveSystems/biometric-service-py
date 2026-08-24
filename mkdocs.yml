@@ -1,0 +1,138 @@
+site_name: Login Biometrico Service
+site_description: Servicio de autenticacion biometrica (rostro y voz) sobre FastAPI
+site_url: https://aiwavesystems.github.io/biometric-service-py/
+repo_url: https://github.com/AIWaveSystems/biometric-service-py
+repo_name: AIWaveSystems/biometric-service-py
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Ilesandres &mdash; Licencia MIT
+
+theme:
+  name: material
+  language: es
+  icon:
+    logo: material/fingerprint
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Modo oscuro
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Modo claro
+  features:
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: es
+          name: Espanol
+          default: true
+          build: true
+          site_name: Login Biometrico Service
+        - locale: en
+          name: English
+          build: true
+          site_name: Biometric Login Service
+          site_description: Face and voice biometric authentication service built on FastAPI
+          nav_translations:
+            Inicio: Home
+            Empezar: Getting started
+            Instalacion: Installation
+            Configuracion: Configuration
+            Primeros pasos: Quickstart
+            API: API
+            Convenciones y autenticacion: Conventions and authentication
+            Usuarios: Users
+            Rostro: Face
+            Voz: Voice
+            Clientes y API keys: Clients and API keys
+            Portal de operadores: Operator portal
+            Errores: Errors
+            Integracion: Integration
+            Desde un backend: From a backend
+            Desde un frontend: From a frontend
+            Validar la sesion: Validating the session
+            Operacion: Operations
+            Despliegue: Deployment
+            Seguridad y umbrales: Security and thresholds
+            Limitaciones conocidas: Known limitations
+            Licencia: License
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Inicio: index.md
+  - Empezar:
+      - Instalacion: empezar/instalacion.md
+      - Configuracion: empezar/configuracion.md
+      - Primeros pasos: empezar/primeros-pasos.md
+  - API:
+      - Convenciones y autenticacion: api/index.md
+      - Usuarios: api/usuarios.md
+      - Rostro: api/rostro.md
+      - Voz: api/voz.md
+      - Clientes y API keys: api/clientes.md
+      - Portal de operadores: api/portal.md
+      - Errores: api/errores.md
+  - Integracion:
+      - Desde un backend: integracion/backend.md
+      - Desde un frontend: integracion/frontend.md
+      - Validar la sesion: integracion/sesiones.md
+  - Operacion:
+      - Despliegue: operacion/despliegue.md
+      - Seguridad y umbrales: operacion/seguridad.md
+      - Advertencias de desarrollo: operacion/advertencias.md
+      - Limitaciones conocidas: operacion/limitaciones.md
+  - Licencia: licencia.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/AIWaveSystems/biometric-service-py
