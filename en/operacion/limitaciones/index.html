@@ -1,0 +1,2063 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Face and voice biometric authentication service built on FastAPI">
+      
+      
+      
+        <link rel="canonical" href="https://aiwavesystems.github.io/biometric-service-py/en/operacion/limitaciones/">
+      
+      
+        <link rel="prev" href="../advertencias/">
+      
+      
+        <link rel="next" href="../../licencia/">
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.49">
+    
+    
+      
+        <title>Known limitations - Biometric Login Service</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.6f8fc17f.min.css">
+      
+        
+        <link rel="stylesheet" href="../../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#known-limitations" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../" title="Biometric Login Service" class="md-header__button md-logo" aria-label="Biometric Login Service" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.81 4.47c-.08 0-.16-.02-.23-.06C15.66 3.42 14 3 12 3c-1.97 0-3.85.47-5.56 1.41-.24.13-.54.04-.68-.2a.506.506 0 0 1 .2-.68C7.82 2.5 9.86 2 12 2s4 .47 6.04 1.5c.25.15.34.45.21.69a.48.48 0 0 1-.44.28M3.5 9.72c-.1 0-.2-.03-.29-.09a.517.517 0 0 1-.12-.7c.99-1.4 2.25-2.5 3.75-3.27C10 4.04 14 4.03 17.15 5.65c1.5.77 2.76 1.85 3.75 3.25.16.22.1.54-.12.7-.23.16-.54.11-.7-.1a9.26 9.26 0 0 0-3.39-2.96c-2.87-1.47-6.54-1.47-9.4.01-1.36.7-2.5 1.7-3.4 2.95-.08.15-.23.22-.39.22m6.25 12.07c-.13 0-.25-.05-.35-.15-.87-.87-1.34-1.43-2.01-2.64-.69-1.23-1.05-2.73-1.05-4.34 0-2.97 2.54-5.39 5.66-5.39s5.66 2.42 5.66 5.39a.5.5 0 0 1-.5.5.5.5 0 0 1-.5-.5c0-2.42-2.09-4.39-4.66-4.39s-4.66 1.97-4.66 4.39c0 1.44.32 2.77.93 3.84.64 1.16 1.08 1.65 1.85 2.43.19.2.19.51 0 .71-.12.1-.24.15-.37.15m7.17-1.85c-1.19 0-2.24-.3-3.1-.89-1.49-1.01-2.38-2.65-2.38-4.39a.5.5 0 0 1 .5-.5.5.5 0 0 1 .5.5c0 1.41.72 2.74 1.94 3.56.71.48 1.54.71 2.54.71.24 0 .64-.03 1.04-.1.27-.05.54.13.58.41.05.26-.13.53-.41.58-.57.11-1.07.12-1.21.12M14.91 22h-.13c-1.59-.46-2.63-1.05-3.72-2.12a7.28 7.28 0 0 1-2.17-5.22c0-1.62 1.38-2.94 3.08-2.94s3.08 1.32 3.08 2.94c0 1.07.95 1.94 2.08 1.94 1.15 0 2.08-.87 2.08-1.94 0-3.77-3.25-6.83-7.25-6.83-2.84 0-5.46 1.58-6.61 4.03-.39.81-.59 1.76-.59 2.8 0 .78.07 2.01.67 3.61.1.26-.03.55-.29.64a.504.504 0 0 1-.64-.29c-.5-1.31-.73-2.62-.73-3.96 0-1.2.23-2.29.68-3.24 1.33-2.79 4.28-4.6 7.51-4.6 4.54 0 8.25 3.51 8.25 7.83 0 1.62-1.38 2.94-3.08 2.94s-3.08-1.32-3.08-2.94c0-1.07-.93-1.94-2.08-1.94s-2.08.87-2.08 1.94c0 1.71.66 3.31 1.87 4.51.95.94 1.86 1.46 3.27 1.84.27.08.42.36.35.62-.05.23-.26.38-.47.38"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Biometric Login Service
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Known limitations
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Modo oscuro"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Modo oscuro" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Modo claro"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Modo claro" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+      <div class="md-header__option">
+  <div class="md-select">
+    
+    <button class="md-header__button md-icon" aria-label="Select language">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12.87 15.07-2.54-2.51.03-.03A17.5 17.5 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2zm-2.62 7 1.62-4.33L19.12 17z"/></svg>
+    </button>
+    <div class="md-select__inner">
+      <ul class="md-select__list">
+        
+          <li class="md-select__item">
+            <a href="../../../operacion/limitaciones/" hreflang="es" class="md-select__link">
+              Espanol
+            </a>
+          </li>
+        
+          <li class="md-select__item">
+            <a href="./" hreflang="en" class="md-select__link">
+              English
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</div>
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/AIWaveSystems/biometric-service-py" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AIWaveSystems/biometric-service-py
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../" class="md-tabs__link">
+        
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../empezar/instalacion/" class="md-tabs__link">
+          
+  
+  Getting started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/" class="md-tabs__link">
+          
+  
+  API
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../integracion/backend/" class="md-tabs__link">
+          
+  
+  Integration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../despliegue/" class="md-tabs__link">
+          
+  
+  Operations
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../licencia/" class="md-tabs__link">
+        
+  
+    
+  
+  License
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../" title="Biometric Login Service" class="md-nav__button md-logo" aria-label="Biometric Login Service" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M17.81 4.47c-.08 0-.16-.02-.23-.06C15.66 3.42 14 3 12 3c-1.97 0-3.85.47-5.56 1.41-.24.13-.54.04-.68-.2a.506.506 0 0 1 .2-.68C7.82 2.5 9.86 2 12 2s4 .47 6.04 1.5c.25.15.34.45.21.69a.48.48 0 0 1-.44.28M3.5 9.72c-.1 0-.2-.03-.29-.09a.517.517 0 0 1-.12-.7c.99-1.4 2.25-2.5 3.75-3.27C10 4.04 14 4.03 17.15 5.65c1.5.77 2.76 1.85 3.75 3.25.16.22.1.54-.12.7-.23.16-.54.11-.7-.1a9.26 9.26 0 0 0-3.39-2.96c-2.87-1.47-6.54-1.47-9.4.01-1.36.7-2.5 1.7-3.4 2.95-.08.15-.23.22-.39.22m6.25 12.07c-.13 0-.25-.05-.35-.15-.87-.87-1.34-1.43-2.01-2.64-.69-1.23-1.05-2.73-1.05-4.34 0-2.97 2.54-5.39 5.66-5.39s5.66 2.42 5.66 5.39a.5.5 0 0 1-.5.5.5.5 0 0 1-.5-.5c0-2.42-2.09-4.39-4.66-4.39s-4.66 1.97-4.66 4.39c0 1.44.32 2.77.93 3.84.64 1.16 1.08 1.65 1.85 2.43.19.2.19.51 0 .71-.12.1-.24.15-.37.15m7.17-1.85c-1.19 0-2.24-.3-3.1-.89-1.49-1.01-2.38-2.65-2.38-4.39a.5.5 0 0 1 .5-.5.5.5 0 0 1 .5.5c0 1.41.72 2.74 1.94 3.56.71.48 1.54.71 2.54.71.24 0 .64-.03 1.04-.1.27-.05.54.13.58.41.05.26-.13.53-.41.58-.57.11-1.07.12-1.21.12M14.91 22h-.13c-1.59-.46-2.63-1.05-3.72-2.12a7.28 7.28 0 0 1-2.17-5.22c0-1.62 1.38-2.94 3.08-2.94s3.08 1.32 3.08 2.94c0 1.07.95 1.94 2.08 1.94 1.15 0 2.08-.87 2.08-1.94 0-3.77-3.25-6.83-7.25-6.83-2.84 0-5.46 1.58-6.61 4.03-.39.81-.59 1.76-.59 2.8 0 .78.07 2.01.67 3.61.1.26-.03.55-.29.64a.504.504 0 0 1-.64-.29c-.5-1.31-.73-2.62-.73-3.96 0-1.2.23-2.29.68-3.24 1.33-2.79 4.28-4.6 7.51-4.6 4.54 0 8.25 3.51 8.25 7.83 0 1.62-1.38 2.94-3.08 2.94s-3.08-1.32-3.08-2.94c0-1.07-.93-1.94-2.08-1.94s-2.08.87-2.08 1.94c0 1.71.66 3.31 1.87 4.51.95.94 1.86 1.46 3.27 1.84.27.08.42.36.35.62-.05.23-.26.38-.47.38"/></svg>
+
+    </a>
+    Biometric Login Service
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AIWaveSystems/biometric-service-py" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AIWaveSystems/biometric-service-py
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Getting started
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            Getting started
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../empezar/instalacion/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Installation
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../empezar/configuracion/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Configuration
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../empezar/primeros-pasos/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Quickstart
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    API
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            API
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Conventions and authentication
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/usuarios/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Users
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/rostro/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Face
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/voz/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Voice
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/clientes/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Clients and API keys
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/portal/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Operator portal
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/errores/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Errors
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Integration
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Integration
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integracion/backend/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    From a backend
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integracion/frontend/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    From a frontend
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integracion/sesiones/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Validating the session
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  <span class="md-ellipsis">
+    Operations
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Operations
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../despliegue/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Deployment
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../seguridad/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Security and thresholds
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advertencias/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Advertencias de desarrollo
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Known limitations
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    Known limitations
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-measurements-were-made" class="md-nav__link">
+    <span class="md-ellipsis">
+      How the measurements were made
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#low-light-in-face-login" class="md-nav__link">
+    <span class="md-ellipsis">
+      Low light in face login
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Low light in face login">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#outright-rejection" class="md-nav__link">
+    <span class="md-ellipsis">
+      Outright rejection
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wrongful-acceptance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Wrongful acceptance
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-the-quality-gate-does-not-stop-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      Why the quality gate does not stop it
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gmm-z-mode-does-not-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      gmm-z mode does not verify
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#voice-threshold-measured-with-very-little-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      Voice threshold measured with very little data
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Voice threshold measured with very little data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-cam-mistake-and-why-it-matters" class="md-nav__link">
+    <span class="md-ellipsis">
+      The CAM++ mistake, and why it matters
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#in-memory-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      In-memory state
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#unencrypted-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      Unencrypted templates
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#no-consent-record" class="md-nav__link">
+    <span class="md-ellipsis">
+      No consent record
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identify-does-not-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      identify does not scale
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#imperfect-face-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      Imperfect face detection
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cmvn-subset-bias-in-the-digits" class="md-nav__link">
+    <span class="md-ellipsis">
+      CMVN subset bias in the digits
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#duplicate-voice-on-two-accounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Duplicate voice on two accounts
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#llr-threshold-set-too-low" class="md-nav__link">
+    <span class="md-ellipsis">
+      LLR threshold set too low
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#near-silent-audio-accepted" class="md-nav__link">
+    <span class="md-ellipsis">
+      Near-silent audio accepted
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#browser-audio-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      Browser audio processing
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      Summary
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../licencia/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    License
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-measurements-were-made" class="md-nav__link">
+    <span class="md-ellipsis">
+      How the measurements were made
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#low-light-in-face-login" class="md-nav__link">
+    <span class="md-ellipsis">
+      Low light in face login
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Low light in face login">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#outright-rejection" class="md-nav__link">
+    <span class="md-ellipsis">
+      Outright rejection
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wrongful-acceptance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Wrongful acceptance
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-the-quality-gate-does-not-stop-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      Why the quality gate does not stop it
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gmm-z-mode-does-not-verify" class="md-nav__link">
+    <span class="md-ellipsis">
+      gmm-z mode does not verify
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#voice-threshold-measured-with-very-little-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      Voice threshold measured with very little data
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Voice threshold measured with very little data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-cam-mistake-and-why-it-matters" class="md-nav__link">
+    <span class="md-ellipsis">
+      The CAM++ mistake, and why it matters
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#in-memory-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      In-memory state
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#unencrypted-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      Unencrypted templates
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#no-consent-record" class="md-nav__link">
+    <span class="md-ellipsis">
+      No consent record
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#identify-does-not-scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      identify does not scale
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#imperfect-face-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      Imperfect face detection
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cmvn-subset-bias-in-the-digits" class="md-nav__link">
+    <span class="md-ellipsis">
+      CMVN subset bias in the digits
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#duplicate-voice-on-two-accounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Duplicate voice on two accounts
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#llr-threshold-set-too-low" class="md-nav__link">
+    <span class="md-ellipsis">
+      LLR threshold set too low
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#near-silent-audio-accepted" class="md-nav__link">
+    <span class="md-ellipsis">
+      Near-silent audio accepted
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#browser-audio-processing" class="md-nav__link">
+    <span class="md-ellipsis">
+      Browser audio processing
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      Summary
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+  
+  
+
+
+<h1 id="known-limitations">Known limitations<a class="headerlink" href="#known-limitations" title="Permanent link">&para;</a></h1>
+<p>This page records every measured defect, with its numbers. It is not a wish list: it is what
+is known to fail and by how much.</p>
+<div class="admonition danger">
+<p class="admonition-title">Required reading before production</p>
+<p>Several of these limitations affect security directly. Knowing them is a precondition
+for deciding whether this service can protect what you want protected.</p>
+</div>
+<hr />
+<h2 id="how-the-measurements-were-made">How the measurements were made<a class="headerlink" href="#how-the-measurements-were-made" title="Permanent link">&para;</a></h2>
+<p>With <strong>one real person</strong> and a handful of synthetic audio files and public images. That has
+a consequence running through this whole page:</p>
+<div class="admonition warning">
+<p class="admonition-title">Every FAR figure on this page is inflated in our favour</p>
+<p>The voice test accounts were <strong>text-to-speech synthesisers</strong>, not people. Telling TTS
+apart from human speech is easy for any speaker model, so a 0% false acceptance rate
+against that population means nothing about human impostors.</p>
+<p>The same applies to faces: the tested impostors look very different from the account
+holder.</p>
+</div>
+<hr />
+<h2 id="low-light-in-face-login">Low light in face login<a class="headerlink" href="#low-light-in-face-login" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: high. Not fixed.</strong></p>
+<p>Under low illumination the system fails in two contradictory ways: it either rejects
+everyone, or accepts the wrong person.</p>
+<h3 id="outright-rejection">Outright rejection<a class="headerlink" href="#outright-rejection" title="Permanent link">&para;</a></h3>
+<p>Below a certain light level, YuNet detects no face:</p>
+<table>
+<thead>
+<tr>
+<th>Gain</th>
+<th>Frames with a face (out of 28)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.0</td>
+<td>28</td>
+</tr>
+<tr>
+<td>0.3</td>
+<td>9</td>
+</tr>
+<tr>
+<td>0.2</td>
+<td><strong>0</strong></td>
+</tr>
+</tbody>
+</table>
+<p>With 0 frames, the response is 400 <em>No se detecto la cara en suficientes frames</em>.</p>
+<h3 id="wrongful-acceptance">Wrongful acceptance<a class="headerlink" href="#wrongful-acceptance" title="Permanent link">&para;</a></h3>
+<p>Two causes that multiply each other.</p>
+<p><strong>Cause 1 — noise compresses the embedding space.</strong> Impostor similarity rises without the
+impostor looking any more alike: SFace loses information and all vectors drift towards a
+common point.</p>
+<table>
+<thead>
+<tr>
+<th>Condition</th>
+<th><code>impostor_a</code></th>
+<th><code>messi</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Normal light</td>
+<td>0.179</td>
+<td>0.224</td>
+</tr>
+<tr>
+<td>Medium light + noise</td>
+<td>0.197</td>
+<td>0.234</td>
+</tr>
+<tr>
+<td>Low light + noise</td>
+<td>0.230</td>
+<td>0.293</td>
+</tr>
+<tr>
+<td>Very low light + noise</td>
+<td>—</td>
+<td><strong>0.326</strong></td>
+</tr>
+</tbody>
+</table>
+<p>With a threshold of 0.363, the margin drops from 0.14 to <strong>0.037</strong>: 74% is consumed.</p>
+<p>Other degradations push in the same direction:</p>
+<table>
+<thead>
+<tr>
+<th>Degradation</th>
+<th><code>impostor_a</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Baseline</td>
+<td>0.179</td>
+</tr>
+<tr>
+<td>Blur</td>
+<td>0.254</td>
+</tr>
+<tr>
+<td>Small or distant face</td>
+<td>0.231</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Cause 2 — login takes the maximum over the burst.</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">best</span> <span class="o">=</span> <span class="nb">max</span><span class="p">((</span><span class="n">_best_similarity</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">templates</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">feature_list</span><span class="p">),</span> <span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">)</span>
+</code></pre></div>
+<p><code>_best_similarity</code> already takes the maximum over templates. With 28 frames and 13
+templates that is up to <strong>364 comparisons</strong>, and only <strong>one</strong> needs to cross the threshold.</p>
+<p>For an impostor in low light (mean 0.241, standard deviation 0.036), the expected maximum
+grows with the number of frames:</p>
+<table>
+<thead>
+<tr>
+<th>Frames</th>
+<th>Expected maximum</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>0.244</td>
+</tr>
+<tr>
+<td>5</td>
+<td>0.281</td>
+</tr>
+<tr>
+<td>14</td>
+<td>0.298</td>
+</tr>
+<tr>
+<td>28</td>
+<td>0.307</td>
+</tr>
+<tr>
+<td>120</td>
+<td>0.320</td>
+</tr>
+</tbody>
+</table>
+<p>This is a multiple-comparisons problem. And noise <strong>increases the standard deviation</strong>, so
+the tail grows exactly when the margin has narrowed.</p>
+<h3 id="why-the-quality-gate-does-not-stop-it">Why the quality gate does not stop it<a class="headerlink" href="#why-the-quality-gate-does-not-stop-it" title="Permanent link">&para;</a></h3>
+<p><code>quality.check</code> measures <strong>sharpness and size</strong>, and both fire correctly. But there is <strong>no
+brightness or signal-to-noise check at all</strong>. A dark, noisy image with a well-sized face and
+defined edges passes the gate as valid.</p>
+<div class="admonition note">
+<p class="admonition-title">What remains unmeasured</p>
+<p>In these tests no impostor actually crossed 0.363: the maximum was 0.326. The mechanism
+is reproduced and quantified, but <strong>the specific reported case is not</strong>, because the
+real burst was not available. A visually close impostor starts higher and with 0.037 of
+margin would cross effortlessly.</p>
+</div>
+<p><strong>Possible mitigations</strong>, none applied yet:</p>
+<ol>
+<li>Add a brightness and SNR check to <code>quality.check</code></li>
+<li>Replace <code>max()</code> with a <strong>median</strong> or a high percentile over the frames</li>
+<li>Raise the threshold when the burst's mean brightness is low</li>
+<li>Reject the capture below a minimum brightness, asking for more light</li>
+</ol>
+<hr />
+<h2 id="gmm-z-mode-does-not-verify"><code>gmm-z</code> mode does not verify<a class="headerlink" href="#gmm-z-mode-does-not-verify" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: high. Mitigated, not eliminated.</strong></p>
+<p>When there is no embedding and not enough background speakers, verification falls back to
+the GMM z-score.</p>
+<table>
+<thead>
+<tr>
+<th>Measurement</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Real impostor</td>
+<td><code>z = -2.444</code> against a <code>-2.5</code> threshold</td>
+</tr>
+<tr>
+<td>Margin</td>
+<td><strong>0.056</strong></td>
+</tr>
+<tr>
+<td>EER under MAP adaptation</td>
+<td><strong>50.4%</strong></td>
+</tr>
+</tbody>
+</table>
+<p>50.4% EER is exactly a coin flip.</p>
+<div class="admonition danger">
+<p class="admonition-title">Check <code>scoring</code> in every response</p>
+<p>If it reads <code>"gmm-z"</code>, you are not verifying. Check
+<a href="../../api/voz/#voice-system-status"><code>GET /api/voice/system</code></a>: <code>scoring_active</code>
+must be <code>"embedding"</code>.</p>
+</div>
+<hr />
+<h2 id="voice-threshold-measured-with-very-little-data">Voice threshold measured with very little data<a class="headerlink" href="#voice-threshold-measured-with-very-little-data" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: medium. Unresolved.</strong></p>
+<table>
+<thead>
+<tr>
+<th>ResNet34 measurement</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Same speaker, worst case</td>
+<td>0.411</td>
+</tr>
+<tr>
+<td>Foreign human voice, best case</td>
+<td>0.270</td>
+</tr>
+<tr>
+<td><strong>Margin</strong></td>
+<td><strong>+0.141</strong></td>
+</tr>
+<tr>
+<td>Human impostors used</td>
+<td><strong>1</strong></td>
+</tr>
+</tbody>
+</table>
+<p>A margin of 0.141 measured with a single impostor supports no claim about the real error
+rate.</p>
+<h3 id="the-cam-mistake-and-why-it-matters">The CAM++ mistake, and why it matters<a class="headerlink" href="#the-cam-mistake-and-why-it-matters" title="Permanent link">&para;</a></h3>
+<p>The previous model (CAM++) was <strong>broken in integration</strong> and went undetected for a long
+time, because all validation used synthetic audio: what was being measured was
+real-versus-synthetic, an easy task, and the result looked excellent (+0.472 margin).</p>
+<p>Two downloaded recordings of different people exposed it:</p>
+<table>
+<thead>
+<tr>
+<th>Measurement</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Waveform correlation between the two recordings</td>
+<td>0.0008</td>
+</tr>
+<tr>
+<td>Cosine of their CAM++ embeddings</td>
+<td><strong>0.9006</strong></td>
+</tr>
+<tr>
+<td>F0 of the two voices</td>
+<td>186 Hz and 154 Hz</td>
+</tr>
+<tr>
+<td>F0 of the account holder</td>
+<td>122 Hz</td>
+</tr>
+<tr>
+<td><code>holder ↔ downloaded_1</code></td>
+<td><strong>0.95</strong></td>
+</tr>
+<tr>
+<td><code>holder ↔ holder</code></td>
+<td>0.93</td>
+</tr>
+</tbody>
+</table>
+<p>The impostor scored <strong>higher than the account holder himself</strong>. The fix was switching to
+ResNet34 (<code>hbredin/wespeaker-voxceleb-resnet34-LM</code>), adjusting <code>HIGH_FREQ</code> from 7600 to
+8000 Hz, and lowering the thresholds from 0.40 to 0.35.</p>
+<div class="admonition danger">
+<p class="admonition-title">The lesson, not the bug</p>
+<p>An easy validation set makes a broken component look excellent. No accuracy figure in
+this service means anything until it is re-measured with <strong>different real people</strong>.</p>
+</div>
+<hr />
+<h2 id="in-memory-state">In-memory state<a class="headerlink" href="#in-memory-state" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: medium. Unresolved.</strong></p>
+<p>Three mechanisms live in process memory:</p>
+<table>
+<thead>
+<tr>
+<th>Mechanism</th>
+<th>Consequence with several workers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Rate limiter</td>
+<td>The real limit is multiplied by the number of workers</td>
+</tr>
+<tr>
+<td>Replay guard</td>
+<td>A resent burst can land on another worker and pass</td>
+</tr>
+<tr>
+<td>API key cache</td>
+<td>A revoked key stays valid for up to <strong>60 s</strong> in the other workers</td>
+</tr>
+</tbody>
+</table>
+<p>Digit challenges <strong>do</strong> live in PostgreSQL and do not suffer from this.</p>
+<p><strong>Fix:</strong> move all three to Redis. Pending.</p>
+<div class="admonition warning">
+<p class="admonition-title">Affects any deployment with <code>--workers &gt; 1</code></p>
+<p>With 4 workers and <code>AUTH_RATE_LIMIT=10</code>, the effective limit is 40 attempts per minute.</p>
+</div>
+<hr />
+<h2 id="unencrypted-templates">Unencrypted templates<a class="headerlink" href="#unencrypted-templates" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: medium. Unresolved.</strong></p>
+<p>They are stored as plain <code>BYTEA</code>. Anyone who can read the database obtains everyone's
+biometric vectors.</p>
+<p>They do not allow reconstructing the face or voice, but they <strong>identify uniquely and
+permanently</strong>. A face cannot be changed after a leak.</p>
+<p><strong>Fix:</strong> column-level encryption with a key held outside the database. Pending. In the
+meantime, volume encryption at rest and strict access control.</p>
+<hr />
+<h2 id="no-consent-record">No consent record<a class="headerlink" href="#no-consent-record" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: high, legally. Unresolved.</strong></p>
+<p>Law 1581 of 2012 requires prior, express and informed consent for processing sensitive data.
+There is no table recording who consented, when, for what purpose and for how long.</p>
+<p><strong>Fix:</strong> a consent table with a timestamp, privacy notice version and purpose, linked to the
+user. Pending.</p>
+<hr />
+<h2 id="identify-does-not-scale"><code>identify</code> does not scale<a class="headerlink" href="#identify-does-not-scale" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: low. Unresolved.</strong></p>
+<p><code>POST /api/face/identify</code> walks <strong>every</strong> template in a Python loop, comparing one by one.
+It degrades linearly with thousands of users.</p>
+<p><strong>Fix:</strong> a vector index (<code>pgvector</code> with an HNSW or IVFFlat index). Pending.</p>
+<p><code>POST /api/voice/identify</code> has the same pattern, but there are usually fewer voice
+templates.</p>
+<hr />
+<h2 id="imperfect-face-detection">Imperfect face detection<a class="headerlink" href="#imperfect-face-detection" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: low.</strong></p>
+<p>In the test set, <strong>1 photo out of every 14</strong> produced no face detection with YuNet, despite
+containing a clearly visible face.</p>
+<p>This is mitigated by sending several photos at enrolment and a burst at login: one working
+frame is enough. But it explains why a particular photo can be rejected for no apparent
+reason.</p>
+<hr />
+<h2 id="cmvn-subset-bias-in-the-digits">CMVN subset bias in the digits<a class="headerlink" href="#cmvn-subset-bias-in-the-digits" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: high. Fixed.</strong></p>
+<p>Cepstral normalisation was computed over the whole recording. Enrolment had 10 digits; the
+challenge had 4. The resulting figures were not comparable.</p>
+<table>
+<thead>
+<tr>
+<th>Measurement</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Challenges failing with identical audio</td>
+<td><strong>7 out of 20</strong></td>
+</tr>
+</tbody>
+</table>
+<p>A first fix attempt (using voiced frames only) proved insufficient. The definitive fix was
+to <strong>store the enrolment CMVN</strong> in <code>voice_digit_templates.cmvn</code> and impose it at
+verification time.</p>
+<div class="admonition warning">
+<p class="admonition-title">Old enrolments must be repeated</p>
+<p>An enrolment predating this change has no stored CMVN. It is detected as
+<code>cmvn_ok: false</code> in <code>GET /api/voice/digits/{username}</code>, and the service refuses to issue
+challenges for that account.</p>
+</div>
+<hr />
+<h2 id="duplicate-voice-on-two-accounts">Duplicate voice on two accounts<a class="headerlink" href="#duplicate-voice-on-two-accounts" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: high. Fixed.</strong></p>
+<p>Two accounts had the same voice enrolled, and scored <strong>0.916</strong> against each other. A single
+recording opened both, which looked like <em>the system accepts anyone</em> when in fact the system
+was right: it was the same person.</p>
+<p><strong>Fixed</strong> by the duplicate check at enrolment (<code>VOICE_REJECT_DUPLICATES=true</code>).
+<code>POST /api/voice/identify</code> remains the tool for detecting the case: if it returns
+<code>ambiguous: true</code>, voices are shared.</p>
+<hr />
+<h2 id="llr-threshold-set-too-low">LLR threshold set too low<a class="headerlink" href="#llr-threshold-set-too-low" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: high. Fixed.</strong></p>
+<p><code>VOICE_LLR_THRESHOLD</code> was <code>0.4</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Measurement</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Impostor attempts accepted</td>
+<td><strong>6 out of 40</strong></td>
+</tr>
+<tr>
+<td>FAR</td>
+<td><strong>15%</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The account holder was <strong>always</strong> the best match, so the failure was in the threshold, not
+in the algorithm. It was raised to <code>1.2</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">1.2 is a floor, not a calibrated value</p>
+<p>It is better than 0.4, which was measured as bad. The margin is still only 0.22 (worst
+genuine 1.35 against best impostor 1.13) over a genuine range of ~1.0, and it was
+measured against TTS voices.</p>
+</div>
+<hr />
+<h2 id="near-silent-audio-accepted">Near-silent audio accepted<a class="headerlink" href="#near-silent-audio-accepted" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: medium. Fixed.</strong></p>
+<p>Audio at -70 dBFS produced around 490 frames classified as "voice" and was processed as if it
+were speech.</p>
+<p><strong>Fixed</strong> with an absolute floor of <code>MIN_RMS_DBFS = -55.0</code> in <code>extract_features</code>.</p>
+<hr />
+<h2 id="browser-audio-processing">Browser audio processing<a class="headerlink" href="#browser-audio-processing" title="Permanent link">&para;</a></h2>
+<p><strong>Severity: medium. Fixed in the portal.</strong></p>
+<p>Chrome applies echo cancellation, noise suppression and automatic gain control by default.
+All three alter timbre enough to degrade the embedding and cause rejections of legitimate
+users.</p>
+<p><strong>Fixed</strong> in the portal by capturing with <code>echoCancellation: false, noiseSuppression: false,
+autoGainControl: false, channelCount: 1</code>.</p>
+<div class="admonition danger">
+<p class="admonition-title">Your frontend must do the same</p>
+<p>This cannot be fixed on the server. Any custom client has to disable it. See
+<a href="../../integracion/frontend/">From a frontend</a>.</p>
+</div>
+<hr />
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Limitation</th>
+<th>Severity</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Low light in face login</td>
+<td>High</td>
+<td><strong>Not fixed</strong></td>
+</tr>
+<tr>
+<td>No consent record</td>
+<td>High (legal)</td>
+<td><strong>Unresolved</strong></td>
+</tr>
+<tr>
+<td><code>gmm-z</code> mode does not verify</td>
+<td>High</td>
+<td>Mitigated</td>
+</tr>
+<tr>
+<td>Voice threshold with 1 impostor</td>
+<td>Medium</td>
+<td><strong>Unresolved</strong></td>
+</tr>
+<tr>
+<td>In-memory state with several workers</td>
+<td>Medium</td>
+<td><strong>Unresolved</strong></td>
+</tr>
+<tr>
+<td>Unencrypted templates</td>
+<td>Medium</td>
+<td><strong>Unresolved</strong></td>
+</tr>
+<tr>
+<td><code>identify</code> does not scale</td>
+<td>Low</td>
+<td><strong>Unresolved</strong></td>
+</tr>
+<tr>
+<td>Imperfect face detection</td>
+<td>Low</td>
+<td>Mitigated</td>
+</tr>
+<tr>
+<td>CMVN subset bias in digits</td>
+<td>High</td>
+<td>Fixed</td>
+</tr>
+<tr>
+<td>Duplicate voice</td>
+<td>High</td>
+<td>Fixed</td>
+</tr>
+<tr>
+<td>Low LLR threshold</td>
+<td>High</td>
+<td>Fixed</td>
+</tr>
+<tr>
+<td>Near-silent audio accepted</td>
+<td>Medium</td>
+<td>Fixed</td>
+</tr>
+<tr>
+<td>Browser audio processing</td>
+<td>Medium</td>
+<td>Fixed</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../advertencias/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Advertencias de desarrollo">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Advertencias de desarrollo
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../../licencia/" class="md-footer__link md-footer__link--next" aria-label="Next: License">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                License
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 Ilesandres &mdash; Licencia MIT
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        <div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/AIWaveSystems/biometric-service-py" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.7.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "../../..", "features": ["navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "navigation.footer", "toc.follow", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../../../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.88dd0f4e.min.js"></script>
+      
+    
+  </body>
+</html>
