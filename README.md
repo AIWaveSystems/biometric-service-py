@@ -138,7 +138,7 @@ python scripts/migrate_v05.py     # uuid de usuario, operadores y API keys
 python scripts/migrate_voice.py   # columnas de calibración de voz
 python scripts/migrate_digits.py  # tabla del desafío de dígitos (aditivo)
 
-uvicorn backend.main:app --reload
+python -m uvicorn backend.main:app --reload # si falla es debido a que uvicorn no esta instalado aun
 ```
 
 `fetch_models.py` es **obligatorio antes del primer arranque**: los pesos ONNX no
