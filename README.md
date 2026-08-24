@@ -156,10 +156,7 @@ cp .env.example .env          # y rellena los valores obligatorios
 
 python scripts/fetch_models.py    # YuNet, SFace, landmarks y CAM++ (~81 MB)
 python scripts/create_db.py       # crea la base en PostgreSQL
-python scripts/migrate_v05.py     # uuid de usuario, operadores y API keys
-python scripts/migrate_voice.py   # columnas de calibración de voz
-python scripts/migrate_digits.py  # tabla del desafío de dígitos (aditivo)
-python scripts/migrate_user_ownership.py  # columna users.api_client_id (aditivo)
+alembic upgrade head              # crea el esquema completo con migraciones
 
 python -m uvicorn backend.main:app --reload # si falla es debido a que uvicorn no esta instalado aun
 ```
@@ -169,6 +166,29 @@ están versionados en git (pesan 52 MB) y el servicio se niega a arrancar si
 faltan, con un mensaje que remite a ese script. Se guardan en
 `backend/biometrics/face/models/`, dentro del proyecto. Es idempotente: si los
 ficheros ya están y su tamaño coincide, no vuelve a descargarlos.
+
+### Migraciones
+
+El esquema lo gestiona [Alembic](https://alembic.sqlalchemy.org): cada cambio de
+estructura entra como una revisión en `migrations/versions/`, y el arranque del
+servicio ya no crea tablas por su cuenta (`create_all` se retiró). El flujo:
+
+```bash
+alembic upgrade head      # aplica las revisiones pendientes
+alembic revision --autogenerate -m "descripcion"   # genera una revisión nueva
+```
+
+Alembic lee la conexión de `DATABASE_URL` del `.env`; para apuntar a otra base
+sin tocar el archivo, usa la variable `ALEMBIC_DATABASE_URL`.
+
+**Instalaciones creadas antes de Alembico** (esquema creado por `create_all` o
+por los antiguos `scripts/migrate_*.py`) no tienen tabla `alembic_version`.
+Para adoptar el sistema sin perder datos:
+
+```bash
+python scripts/migrate_username_per_tenant.py   # único cambio de esquema pendiente
+alembic stamp head                              # registra la revisión actual
+```
 
 El portal queda en `http://127.0.0.1:8000`. Las rutas `/docs`, `/redoc` y
 `/openapi.json` piden Basic Auth con las credenciales de `.env`.
@@ -1487,10 +1507,11 @@ no generaliza.
 |---|---|
 | `fetch_models.py` | Descarga YuNet, SFace, landmarks y CAM++ al proyecto (~81 MB). Obligatorio antes del primer arranque. |
 | `create_db.py` | Crea la base de datos en PostgreSQL si no existe. |
-| `migrate_v05.py` | Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
-| `migrate_voice.py` | Añade las columnas de calibración y limpia plantillas de voz obsoletas. |
-| `migrate_digits.py` | Crea `voice_digit_templates`. **Puramente aditivo:** no toca ningún dato existente. |
-| `migrate_user_ownership.py` | Añade `users.api_client_id` con su clave ajena e índice. **Aditivo:** los usuarios quedan sin dueño (`NULL`). |
+| `migrate_username_per_tenant.py` | Cambia la unicidad de `username` de global a por sistema cliente. Para instalaciones previas a Alembic, ejecutar antes de `alembic stamp head`. Idempotente, con `--dry-run`. |
+| `migrate_v05.py` | **Histórico (pre-Alembic).** Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
+| `migrate_voice.py` | **Histórico (pre-Alembic).** Añade las columnas de calibración y limpia plantillas de voz obsoletas. |
+| `migrate_digits.py` | **Histórico (pre-Alembic).** Crea `voice_digit_templates`. **Puramente aditivo:** no toca ningún dato existente. |
+| `migrate_user_ownership.py` | **Histórico (pre-Alembic).** Añade `users.api_client_id` con su clave ajena e índice. **Aditivo:** los usuarios quedan sin dueño (`NULL`). |
 | `synth.py` | Genera locutores sintéticos para probar sin micrófono. **No mezcles su salida con usuarios reales.** |
 | `record_blink.py` | Graba una ráfaga real de parpadeo con tu webcam, con aviso de cuándo parpadear. |
 | `record_digits.py` | Graba la matrícula de dígitos guiándote, y valida el troceo antes de subirla. |
