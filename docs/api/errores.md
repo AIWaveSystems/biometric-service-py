@@ -123,7 +123,7 @@ existe, le falta la matricula.
 | *Ya existe un usuario con ese nombre* | Renombrado a uno ocupado | No |
 | *Ya existe un cliente con ese nombre* | Nombre de cliente ocupado | No |
 | *Ya existe un usuario de portal con ese nombre* | Operador duplicado | No |
-| *Esta voz ya esta matriculada como 'X'...* | Voz duplicada | No, revisar la otra cuenta |
+| *Esta voz ya esta matriculada en otra cuenta...* | Voz duplicada | No, revisar la otra cuenta |
 | *Captura repetida detectada...* | Misma rafaga reenviada | Si, **volver a capturar** |
 | *Grabacion repetida detectada...* | Mismo audio reenviado | Si, volver a grabar |
 | *Desafio invalido, caducado o ya usado* | Desafio consumido o vencido | Si, **pedir uno nuevo** |

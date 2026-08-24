@@ -54,7 +54,6 @@ Sustituye la plantilla anterior si la habia. Cada usuario tiene una sola.
   "duration_seconds": 7.3,
   "n_frames": 682,
   "message": "Voz registrada correctamente",
-  "duplicate_of": null,
   "duplicate_similarity": null
 }
 ```
@@ -82,11 +81,13 @@ Antes de guardar, el servicio compara la voz nueva contra las de todas las demas
 Si alguna supera `VOICE_DUPLICATE_THRESHOLD`:
 
 - con `VOICE_REJECT_DUPLICATES=true` (por defecto) responde **409**
-- con `false` la guarda, pero rellena `duplicate_of` y `duplicate_similarity`
+- con `false` la guarda, pero rellena `duplicate_similarity`
+
+Por privacidad la respuesta nunca revela el nombre de la otra cuenta: solo la similitud.
 
 ```json
 {
-  "detail": "Esta voz ya esta matriculada como 'carlos' (similitud 0.916, umbral 0.35). Matricular la misma voz en dos cuentas hace que una sola grabacion abra las dos. ..."
+  "detail": "Esta voz ya esta matriculada en otra cuenta (similitud 0.916, umbral 0.35). Matricular la misma voz en dos cuentas hace que una sola grabacion abra las dos. ..."
 }
 ```
 
