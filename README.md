@@ -355,13 +355,13 @@ Por eso la señal pasó a ser geométrica. La forma del párpado no depende de l
 
 ### La detección del parpadeo
 
-Un frame se marca *cerrado* si su señal baja del `BLINK_CLOSED_RATIO` (75 %) del
+Un frame se marca *cerrado* si su señal baja del `BLINK_CLOSED_RATIO` (78 %) del
 percentil 80 de la ráfaga: umbral relativo, para adaptarse a cada cámara y luz.
 Se acepta un parpadeo cuando concurren tres condiciones:
 
 1. Patrón **abierto → cerrado → abierto**, con al menos 2 frames cerrados
    consecutivos y 1 frame abierto a cada lado.
-2. **Profundidad mínima de la caída** (`MIN_BLINK_DROP`, 25 %) respecto al mejor
+2. **Profundidad mínima de la caída** (`MIN_BLINK_DROP`, 18 %) respecto al mejor
    valor de los 2 frames vecinos a cada lado.
 3. Ningún frame de la racha descartado por movimiento.
 
