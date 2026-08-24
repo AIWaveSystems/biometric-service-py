@@ -104,12 +104,21 @@ con la cara a buen tamano y bordes definidos, pasa el filtro como valida.
     dispuso de la rafaga real. Un impostor visualmente cercano arranca mas alto y con
     0.037 de margen cruzaria sin esfuerzo.
 
-**Mitigaciones posibles**, ninguna aplicada todavia:
+**Mitigaciones**, estado tras el endurecimiento del login facial:
 
-1. Anadir un control de brillo y SNR a `quality.check`
-2. Sustituir el `max()` por una **mediana** o un percentil alto sobre los frames
-3. Subir el umbral cuando el brillo medio de la rafaga sea bajo
-4. Rechazar la captura por debajo de un brillo minimo, pidiendo mas luz
+1. Control de brillo y de ruido (sigma estilo Immerkær) en `quality.check` — **aplicado**.
+   Suelos calibrados con margen: brillo 55/255 y sigma 18 frente a baselines limpias de
+   ~120 y < 2. Rechazan la captura oscura o granulada con mensaje accionable antes de
+   producir un embedding degradado.
+2. Sustituir el `max()` por un agregado robusto — **aplicado**: la decision usa la
+   mediana de la mitad superior de las similitudes, tras colapsar frames duplicados y
+   excluir frames movidos, con cambio de cara o deteccion floja. Un unico pico aislado ya
+   no autentica; una banda `borderline` (umbral − 0.03) distingue «repite con mejor luz»
+   de «no eres tu».
+3. Subir el umbral cuando el brillo medio de la rafaga sea bajo — pendiente, hoy el
+   rechazo es binario por la puerta de calidad.
+4. Rechazar la captura por debajo de un brillo minimo, pidiendo mas luz — **aplicado**
+   (es la puerta del punto 1).
 
 ---
 
@@ -341,7 +350,7 @@ false, autoGainControl: false, channelCount: 1`.
 
 | Limitacion | Gravedad | Estado |
 | --- | --- | --- |
-| Poca luz en el login facial | Alta | **Sin corregir** |
+| Poca luz en el login facial | Alta | Mitigado (puerta de brillo/ruido + agregado robusto) |
 | Sin registro de consentimiento | Alta (legal) | **Sin resolver** |
 | Modo `gmm-z` no verifica | Alta | Mitigado |
 | Umbral de voz con 1 impostor | Media | **Sin resolver** |

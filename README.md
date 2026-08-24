@@ -465,6 +465,7 @@ curl -X POST http://TU_HOST/api/face/login   -H "X-API-Key: lbs_..."   -F "usern
   "n_usable": 26,
   "n_moved": 2,
   "blink_detected": true,
+  "borderline": false,
   "access_token": "eyJ...",
   "expires_in": 900,
   "reason": null
@@ -481,6 +482,7 @@ Guarda el `uuid`: es el identificador estable del usuario. Cuando `verified` es
 | `n_faces` mucho menor que `n_frames` | Pedir que mire de frente y mejore la luz. |
 | `n_moved` alto / `n_usable` bajo | Pedir que se quede quieto y repetir. |
 | `blink_detected` false | Repetir insistiendo en parpadear **con el aviso**. |
+| `borderline: true` | La captura quedó cerca del umbral: repetir mejorando la luz y la distancia. |
 | `similarity` bajo el umbral | No es un problema de captura: la cara no coincide. |
 | HTTP 409 | Ráfaga repetida (anti-replay). Hay que grabar de nuevo, no reenviar. |
 | HTTP 429 | Demasiados intentos. Esperar antes de reintentar. |

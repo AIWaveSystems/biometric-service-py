@@ -111,14 +111,17 @@ flowchart TD
     F -->|si| G{Rafaga ya vista<br/>hace poco?}
     G -->|si| E3[409 captura repetida]
     G -->|no| H[Analisis de parpadeo por EAR]
-    H --> I[Similitud maxima<br/>sobre los frames]
-    I --> J{parpadeo Y<br/>similitud >= umbral?}
-    J -->|si| K[verified true + token]
-    J -->|no| L[verified false + reason]
+    H --> I[Filtrar frames por confianza,<br/>estabilidad y duplicados]
+    I --> J[Mediana de la mitad superior<br/>de las similitudes]
+    J --> K{parpadeo Y<br/>mediana >= umbral?}
+    K -->|si| L[verified true + token]
+    K -->|no| M[verified false + reason]
 ```
 
 Para que `verified` sea `true` hacen falta **las dos condiciones**: parpadeo detectado y
-similitud sobre el umbral.
+que la mediana de la mitad superior de las similitudes supere el umbral. Un unico frame
+con suerte no autentica: los frames repetidos se colapsan y los borrosos, movidos o de
+deteccion floja se excluyen antes de puntuar.
 
 ### Respuesta
 
@@ -135,6 +138,7 @@ similitud sobre el umbral.
   "n_usable": 24,
   "n_moved": 3,
   "blink_detected": true,
+  "borderline": false,
   "access_token": "eyJhbGciOiJIUzI1NiIs...",
   "token_type": "bearer",
   "expires_in": 900,
@@ -147,8 +151,9 @@ similitud sobre el umbral.
 | `n_frames` | Frames recibidos |
 | `n_faces` | Frames con cara detectada |
 | `n_usable` | Frames estables usados para medir el parpadeo |
-| `n_moved` | Frames descartados por movimiento excesivo |
-| `similarity` | **Maximo** sobre todos los frames y todas las plantillas |
+| `n_moved` | Frames descartados por movimiento excesivo o cambio de cara |
+| `similarity` | Mejor similitud tras el filtrado; la decision usa la mediana de la mitad superior, no este maximo |
+| `borderline` | `true` cuando paso el liveness pero quedo a menos de `0.03` del umbral: conviene reintentar con mejor luz |
 | `reason` | Explicacion legible cuando `verified` es `false` |
 
 ### Motivos de rechazo
@@ -160,6 +165,7 @@ similitud sobre el umbral.
 | Cara detectada en pocos frames | *Solo se te detecto en N de M frames. Mira de frente a la camara sin girar la cabeza durante la captura.* |
 | Demasiado movimiento | *Hubo demasiado movimiento durante la captura. Quedate quieto y parpadea cuando el portal te lo indique.* |
 | Sin parpadeo | *No se detecto parpadeo. Parpadea cuando el portal te lo indique.* |
+| Cerca del umbral (`borderline`) | *El rostro queda cerca del umbral. Mejora la iluminacion, acercate a la camara y repite la captura.* |
 | Identidad no coincide | *El rostro no coincide con las plantillas registradas.* |
 
 Los tres primeros son problemas de captura, no de identidad: la accion correcta en el
