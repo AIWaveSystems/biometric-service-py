@@ -25,6 +25,12 @@ model.
     Anyone who opens developer tools can read it, and with the `enroll` scope they could
     enrol their own face on somebody else's account. See [From a frontend](frontend.md).
 
+!!! info "Example integration project"
+    [AIWaveSystems/biometric-integration-test](https://github.com/AIWaveSystems/biometric-integration-test)
+    contains an Express/Node server showing **one** way to wire this integration end to end.
+    It is neither the only way nor production code: it was generated with AI. Treat it purely
+    as a reference to compare against your own implementation.
+
 ---
 
 ## Python
