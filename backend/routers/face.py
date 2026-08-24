@@ -38,7 +38,13 @@ BORDERLINE_MARGIN = 0.03
 
 
 def _embedding_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarray:
-    img = detector.load_image(data)
+    try:
+        img = detector.load_image(data)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="No se pudo leer la imagen (formato no soportado; usa JPG o PNG)",
+        ) from None
     face = embedder.primary_face(img)
     if face is None:
         raise HTTPException(status_code=400, detail="No se detecto ninguna cara en la imagen")

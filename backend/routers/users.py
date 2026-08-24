@@ -93,8 +93,13 @@ def register(
         rejected = None
         accepted: list = []
         n_redundant = 0
+        n_unreadable = 0
         for upload in face_files:
-            img = detector.load_image(upload.file.read())
+            try:
+                img = detector.load_image(upload.file.read())
+            except ValueError:
+                n_unreadable += 1
+                continue
             face = embedder.primary_face(img)
             if face is None:
                 continue
@@ -114,13 +119,19 @@ def register(
             )
             n_faces += 1
         if n_faces == 0:
-            raise HTTPException(
-                status_code=400,
-                detail=rejected or "No se detecto ninguna cara en las imagenes",
+            detail = rejected or (
+                "Ninguna imagen se pudo leer (formato no soportado; usa JPG o PNG)"
+                if n_unreadable and n_unreadable == len(face_files)
+                else "No se detecto ninguna cara en las imagenes"
             )
+            raise HTTPException(status_code=400, detail=detail)
         registered.append(f"cara x{n_faces}")
         if n_redundant:
             registered.append(f"{n_redundant} foto(s) descartada(s) por ser casi identicas")
+        if n_unreadable:
+            registered.append(
+                f"{n_unreadable} archivo(s) ilegible(s) ignorado(s); usa JPG o PNG"
+            )
 
     voice_result = None
     if audio is not None:
@@ -253,9 +264,14 @@ def add_faces(
     added = 0
     n_redundant = 0
     n_no_face = 0
+    n_unreadable = 0
     rejected: str | None = None
     for upload in uploads:
-        img = detector.load_image(upload.file.read())
+        try:
+            img = detector.load_image(upload.file.read())
+        except ValueError:
+            n_unreadable += 1
+            continue
         face = embedder.primary_face(img)
         if face is None:
             n_no_face += 1
@@ -275,11 +291,14 @@ def add_faces(
 
     if added == 0:
         db.rollback()
-        detail = rejected or (
-            "Todas las fotos son casi identicas a las que ya tiene el usuario"
-            if n_redundant
-            else "No se detecto ninguna cara en las imagenes"
-        )
+        if rejected is None and n_unreadable and n_unreadable == len(uploads):
+            detail = "Ninguna imagen se pudo leer (formato no soportado; usa JPG o PNG)"
+        else:
+            detail = rejected or (
+                "Todas las fotos son casi identicas a las que ya tiene el usuario"
+                if n_redundant
+                else "No se detecto ninguna cara en las imagenes"
+            )
         raise HTTPException(status_code=400, detail=detail)
 
     db.commit()
@@ -289,6 +308,7 @@ def add_faces(
         "added": added,
         "redundant": n_redundant,
         "without_face": n_no_face,
+        "unreadable": n_unreadable,
         "total_templates": n_existing + added,
     }
 
