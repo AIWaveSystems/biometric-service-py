@@ -33,7 +33,6 @@ cual, sin traducir ni reescribir.
 | --- | --- | --- |
 | *No se detecto ninguna cara en la imagen* | YuNet no encontro rostro | Mas luz, cara centrada |
 | *No se pudo leer la imagen (formato no soportado...)* | El archivo no es JPG ni PNG (HEIC de iPhone, AVIF, WEBP...) | Si, convertir a JPG o PNG |
-| *Esa cara ya esta matriculada en otra cuenta del mismo sistema...* | La misma persona ya existe en otra cuenta de ESA web | No, revisar esa otra cuenta (409) |
 | *El usuario ya alcanzo el maximo de N plantillas faciales...* | Tope `FACE_MAX_TEMPLATES_PER_USER` | Si, borrar alguna o re-matriplicar |
 | *No se detecto la cara en suficientes frames...* | Rafaga con demasiados huecos | Mirar de frente, no girar |
 | *Ningun frame tiene calidad suficiente para verificar* | Todos borrosos o cara muy pequena | Acercarse, sujetar la camara |
@@ -127,6 +126,7 @@ existe, le falta la matricula.
 | *Ya existe un cliente con ese nombre* | Nombre de cliente ocupado | No |
 | *Ya existe un usuario de portal con ese nombre* | Operador duplicado | No |
 | *Esta voz ya esta matriculada en otra cuenta...* | Voz duplicada | No, revisar la otra cuenta |
+| *Esa cara ya esta matriculada en otra cuenta del mismo sistema...* | La misma persona ya existe en otra cuenta de ESA web (`FACE_REJECT_DUPLICATES=true`) | No, revisar la otra cuenta |
 | *Captura repetida detectada...* | Misma rafaga reenviada | Si, **volver a capturar** |
 | *Grabacion repetida detectada...* | Mismo audio reenviado | Si, volver a grabar |
 | *Desafio invalido, caducado o ya usado* | Desafio consumido o vencido | Si, **pedir uno nuevo** |

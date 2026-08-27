@@ -33,7 +33,6 @@ are, without translating or rewriting.
 | --- | --- | --- |
 | *No se detecto ninguna cara en la imagen* | YuNet found no face | More light, centre the face |
 | *No se pudo leer la imagen (formato no soportado...)* | The file is not JPG nor PNG (iPhone HEIC, AVIF, WEBP...) | Yes, convert to JPG or PNG |
-| *Esa cara ya esta matriculada en otra cuenta del mismo sistema...* | The same person already exists on another account of THAT web | No, review that other account (409) |
 | *El usuario ya alcanzo el maximo de N plantillas faciales...* | `FACE_MAX_TEMPLATES_PER_USER` reached | Yes, delete some or re-enroll |
 | *No se detecto la cara en suficientes frames...* | Burst with too many gaps | Look straight ahead, do not turn |
 | *Ningun frame tiene calidad suficiente para verificar* | All blurry or the face too small | Move closer, hold the camera steady |
@@ -127,6 +126,7 @@ the enrolment is missing.
 | *Ya existe un cliente con ese nombre* | Client name taken | No |
 | *Ya existe un usuario de portal con ese nombre* | Duplicate operator | No |
 | *Esta voz ya esta matriculada en otra cuenta...* | Duplicate voice | No, review the other account |
+| *Esa cara ya esta matriculada en otra cuenta del mismo sistema...* | The same person already exists on another account of THAT web (`FACE_REJECT_DUPLICATES=true`) | No, review the other account |
 | *Captura repetida detectada...* | Same burst resent | Yes, **capture again** |
 | *Grabacion repetida detectada...* | Same audio resent | Yes, record again |
 | *Desafio invalido, caducado o ya usado* | Challenge consumed or expired | Yes, **request a new one** |

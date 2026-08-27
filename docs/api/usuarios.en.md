@@ -78,6 +78,7 @@ curl -X POST http://localhost:8000/api/users/register \
 | 400 | No photo has a detectable face or sufficient quality |
 | 409 | The username already exists (within your system) |
 | 409 | The voice is already enrolled on another account (see [Voice](voz.md#duplicate-detection)) |
+| 409 | The face is already enrolled on another account of the same system (see [duplicates](rostro.en.md#duplicates-within-the-same-system)) |
 
 ---
 
@@ -158,11 +159,15 @@ POST /api/users/{username}/faces
     cannot be decoded and are ignored; if no photo can be read the response is **400**.
 
 Templates **accumulate** up to a maximum of `FACE_MAX_TEMPLATES_PER_USER` (12 by default);
-once reached the endpoint responds **400** so the matching cost does not grow. When the
-request comes from an API client, photos already enrolled on another account of the same
-system are also discarded/flagged (see
-[duplicates](rostro.en.md#duplicates-within-the-same-system)). Each photo passes three
-filters before being stored.
+once reached the endpoint responds **400** so the matching cost does not grow. Each photo
+passes several filters before being stored: readable (JPG/PNG), a face present, sufficient
+quality, not redundant with the existing ones, and —when the request comes from an API
+client— not already enrolled on another account of the same system (see
+[duplicates](rostro.en.md#duplicates-within-the-same-system)).
+
+With `FACE_REJECT_DUPLICATES=true` (the default), a duplicate photo fails the **whole request
+with 409** and nothing is stored. With `false` the photo is stored but counted in
+`duplicates` (and that field only appears in that mode).
 
 ```mermaid
 flowchart LR
@@ -171,10 +176,13 @@ flowchart LR
     B -->|yes| C{Sufficient<br/>quality?}
     C -->|no| X2[rejected]
     C -->|yes| D{Already enrolled on<br/>another account?}
-    D -->|yes| X4[duplicate]
-    D -->|no| E{Redundant with<br/>existing ones?}
-    E -->|yes| X3[discarded]
-    E -->|no| F[Template stored]
+    D -->|yes| E1{reject_duplicates?}
+    E1 -->|yes| E2[409, nothing stored]
+    E1 -->|no| E3[counts as duplicate]
+    D -->|no| F{Redundant with<br/>existing ones?}
+    F -->|yes| X3[discarded]
+    F -->|no| G[Template stored]
+    E3 --> F
 ```
 
 ```json
@@ -193,7 +201,12 @@ flowchart LR
 
 If `added` is 0 the response is **400** with the specific reason: a quality problem, all
 redundant, no face detected, no readable image (unsupported format), or the user already
-reached the template limit. `duplicates` and `limit_reached` only appear when relevant.
+reached the template limit.
+
+`limit_reached` is set when the `FACE_MAX_TEMPLATES_PER_USER` ceiling is reached. The
+example combines `added` with `duplicates` because it assumes
+`FACE_REJECT_DUPLICATES=false`; with the default `true` the same situation would have
+returned **409** instead of this response, so `duplicates` would not appear.
 
 !!! tip "How many photos"
     Between 8 and 12 templates per person, varying expression, angle, glasses and lighting.
