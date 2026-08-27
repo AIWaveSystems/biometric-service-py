@@ -54,6 +54,25 @@ anadir caras a alguien existente usa
 }
 ```
 
+### Duplicados dentro del mismo sistema
+
+Cuando la matricula llega de un **cliente API** (con su API key), el servicio compara
+la cara nueva contra las demas cuentas de **ese mismo sistema**. Si alguna supera
+`FACE_DUPLICATE_THRESHOLD`:
+
+- con `FACE_REJECT_DUPLICATES=true` (por defecto) responde **409** y no crea/cambia nada;
+- con `false` la guarda y rellena `duplicate_similarity` (y en `users` el contador `duplicates`).
+
+Entre sistemas distintos el mismo rostro **esta permitido**: cada web cliente tiene a
+la misma persona con su propia cuenta. La guardia solo aplica al mismo `api_client_id`.
+Desde el **portal** (dashboard) no se filtra por duplicados.
+
+```json
+{
+  "detail": "Esa cara ya esta matriculada en otra cuenta del mismo sistema (similitud 0.93). Una sola foto abre las dos cuentas; revisa la matricula de esa otra cuenta."
+}
+```
+
 ---
 
 ## Verificar una cara (1:1, sin deteccion de vida)

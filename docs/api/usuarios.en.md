@@ -157,8 +157,12 @@ POST /api/users/{username}/faces
     **JPG** and **PNG** only. Files in other formats (iPhone HEIC/HEIF, AVIF, WEBP)
     cannot be decoded and are ignored; if no photo can be read the response is **400**.
 
-Templates **accumulate**: earlier ones are not deleted. Each photo passes three filters
-before being stored.
+Templates **accumulate** up to a maximum of `FACE_MAX_TEMPLATES_PER_USER` (12 by default);
+once reached the endpoint responds **400** so the matching cost does not grow. When the
+request comes from an API client, photos already enrolled on another account of the same
+system are also discarded/flagged (see
+[duplicates](rostro.en.md#duplicates-within-the-same-system)). Each photo passes three
+filters before being stored.
 
 ```mermaid
 flowchart LR
@@ -166,9 +170,11 @@ flowchart LR
     B -->|no| X1[no face]
     B -->|yes| C{Sufficient<br/>quality?}
     C -->|no| X2[rejected]
-    C -->|yes| D{Redundant with<br/>existing ones?}
-    D -->|yes| X3[discarded]
-    D -->|no| E[Template stored]
+    C -->|yes| D{Already enrolled on<br/>another account?}
+    D -->|yes| X4[duplicate]
+    D -->|no| E{Redundant with<br/>existing ones?}
+    E -->|yes| X3[discarded]
+    E -->|no| F[Template stored]
 ```
 
 ```json
@@ -179,12 +185,15 @@ flowchart LR
   "redundant": 2,
   "without_face": 1,
   "unreadable": 0,
+  "duplicates": 1,
+  "limit_reached": false,
   "total_templates": 9
 }
 ```
 
 If `added` is 0 the response is **400** with the specific reason: a quality problem, all
-redundant, no face detected, or no readable image (unsupported format).
+redundant, no face detected, no readable image (unsupported format), or the user already
+reached the template limit. `duplicates` and `limit_reached` only appear when relevant.
 
 !!! tip "How many photos"
     Between 8 and 12 templates per person, varying expression, angle, glasses and lighting.

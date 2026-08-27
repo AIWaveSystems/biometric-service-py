@@ -33,6 +33,8 @@ are, without translating or rewriting.
 | --- | --- | --- |
 | *No se detecto ninguna cara en la imagen* | YuNet found no face | More light, centre the face |
 | *No se pudo leer la imagen (formato no soportado...)* | The file is not JPG nor PNG (iPhone HEIC, AVIF, WEBP...) | Yes, convert to JPG or PNG |
+| *Esa cara ya esta matriculada en otra cuenta del mismo sistema...* | The same person already exists on another account of THAT web | No, review that other account (409) |
+| *El usuario ya alcanzo el maximo de N plantillas faciales...* | `FACE_MAX_TEMPLATES_PER_USER` reached | Yes, delete some or re-enroll |
 | *No se detecto la cara en suficientes frames...* | Burst with too many gaps | Look straight ahead, do not turn |
 | *Ningun frame tiene calidad suficiente para verificar* | All blurry or the face too small | Move closer, hold the camera steady |
 | *Se requiere al menos un frame* | Empty `frames` list | Client bug |

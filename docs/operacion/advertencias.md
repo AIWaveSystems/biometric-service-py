@@ -87,9 +87,10 @@ legítimos rara vez superan 0.40. Es la causa clásica del «a veces se entra co
 cara de otro».
 
 - La voz tiene guardia automático que rechaza matrículas duplicadas
-  (`VOICE_REJECT_DUPLICATES`). El rostro **no lo tiene**: es responsabilidad del
-  proceso de alta de cada sistema cliente garantizar que una persona tenga una
-  sola cuenta.
+  (`VOICE_REJECT_DUPLICATES`). El rostro también la tiene ahora
+  (`FACE_REJECT_DUPLICATES`): cuando la matrícula llega de un cliente API, una cara ya
+  registrada en otra cuenta del **mismo sistema** se rechaza (409). La guardia no aplica
+  entre sistemas distintos (cada web puede tener a la misma persona) ni desde el portal.
 - Detección: `POST /api/voice/identify` con `ambiguous: true` delata voces
   compartidas; `scripts/calibrate_face_db.py` lista los pares de plantillas
   faciales con similitud sospechosa entre usuarios distintos.

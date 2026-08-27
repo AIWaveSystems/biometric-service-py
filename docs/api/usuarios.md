@@ -158,8 +158,12 @@ POST /api/users/{username}/faces
     WEBP) no se pueden decodificar y se ignoran; si ninguna foto se puede leer la
     respuesta es **400**.
 
-Las plantillas se **acumulan**: no borra las anteriores. Cada foto pasa por tres filtros
-antes de guardarse.
+Las plantillas se **acumulan** hasta un maximo de `FACE_MAX_TEMPLATES_PER_USER` (12 por
+defecto); al alcanzarlo el endpoint responde **400** para que no crezca el coste del
+matching. Cuando la peticion viene de un cliente API, ademas se descartan/avisan las
+fotos que ya estan matriculadas en otra cuenta del mismo sistema (ver
+[duplicados](rostro.md#duplicados-dentro-del-mismo-sistema)). Cada foto pasa por tres
+filtros antes de guardarse.
 
 ```mermaid
 flowchart LR
@@ -167,9 +171,11 @@ flowchart LR
     B -->|no| X1[sin cara]
     B -->|si| C{Calidad<br/>suficiente?}
     C -->|no| X2[rechazada]
-    C -->|si| D{Redundante con<br/>las que ya hay?}
-    D -->|si| X3[descartada]
-    D -->|no| E[Plantilla guardada]
+    C -->|si| D{Ya matriculada en<br/>otra cuenta del sistema?}
+    D -->|si| X4[duplicada]
+    D -->|no| E{Redundante con<br/>las que ya hay?}
+    E -->|si| X3[descartada]
+    E -->|no| F[Plantilla guardada]
 ```
 
 ```json
@@ -180,12 +186,16 @@ flowchart LR
   "redundant": 2,
   "without_face": 1,
   "unreadable": 0,
+  "duplicates": 1,
+  "limit_reached": false,
   "total_templates": 9
 }
 ```
 
 Si `added` es 0 la respuesta es **400** con el motivo concreto: problema de calidad, todas
-redundantes, ninguna cara detectada, o ninguna imagen legible (formato no soportado).
+redundantes, ninguna cara detectada, ninguna imagen legible (formato no soportado), o el
+usuario ya alcanzo el maximo de plantillas. `duplicates` y `limit_reached` solo aparecen
+cuando corresponden.
 
 !!! tip "Cuantas fotos"
     Entre 8 y 12 plantillas por persona, variando gesto, angulo, gafas e iluminacion.

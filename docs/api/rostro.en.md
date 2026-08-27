@@ -54,6 +54,26 @@ to add faces to an existing person use
 }
 ```
 
+### Duplicates within the same system
+
+When the enrollment comes from an **API client** (with its API key), the service compares
+the new face against the other accounts of **that same system**. If any exceeds
+`FACE_DUPLICATE_THRESHOLD`:
+
+- with `FACE_REJECT_DUPLICATES=true` (default) it responds **409** and stores nothing;
+- with `false` it stores the face and fills `duplicate_similarity` (and the `duplicates`
+  counter on `users`).
+
+The same face **is allowed across different systems**: each web client holds its own
+account for the same person. The guard only applies to the same `api_client_id`. From
+the **portal** (dashboard) there is no duplicate filtering.
+
+```json
+{
+  "detail": "Esa cara ya esta matriculada en otra cuenta del mismo sistema (similitud 0.93). Una sola foto abre las dos cuentas; revisa la matricula de esa otra cuenta."
+}
+```
+
 ---
 
 ## Verify a face (1:1, no liveness)

@@ -33,6 +33,8 @@ cual, sin traducir ni reescribir.
 | --- | --- | --- |
 | *No se detecto ninguna cara en la imagen* | YuNet no encontro rostro | Mas luz, cara centrada |
 | *No se pudo leer la imagen (formato no soportado...)* | El archivo no es JPG ni PNG (HEIC de iPhone, AVIF, WEBP...) | Si, convertir a JPG o PNG |
+| *Esa cara ya esta matriculada en otra cuenta del mismo sistema...* | La misma persona ya existe en otra cuenta de ESA web | No, revisar esa otra cuenta (409) |
+| *El usuario ya alcanzo el maximo de N plantillas faciales...* | Tope `FACE_MAX_TEMPLATES_PER_USER` | Si, borrar alguna o re-matriplicar |
 | *No se detecto la cara en suficientes frames...* | Rafaga con demasiados huecos | Mirar de frente, no girar |
 | *Ningun frame tiene calidad suficiente para verificar* | Todos borrosos o cara muy pequena | Acercarse, sujetar la camara |
 | *Se requiere al menos un frame* | Lista `frames` vacia | Error del cliente |
