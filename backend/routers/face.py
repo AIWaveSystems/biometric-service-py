@@ -86,6 +86,42 @@ def _core_similarity(sims: list[float]) -> float:
     return float(np.median(top_half))
 
 
+def find_duplicate_face(
+    db: Session,
+    vector: np.ndarray,
+    exclude_user_id: int,
+    client_id: int | None,
+) -> tuple[User, float] | None:
+    """Devuelve la cuenta de la MISMA persona en el mismo sistema cliente, si existe.
+
+    Solo se compara cuando `client_id` esta definido (peticion de un integrador):
+    distintos sistemas pueden compartir rostro; dentro de un mismo sistema la misma
+    cara no debe matricularse en dos cuentas. El portal (sin API key) no filtra.
+    """
+    if client_id is None:
+        return None
+    query = (
+        select(User, FaceTemplate.features)
+        .join(FaceTemplate, FaceTemplate.user_id == User.id)
+        .where(
+            FaceTemplate.algorithm == ALGORITHM,
+            FaceTemplate.user_id != exclude_user_id,
+            User.api_client_id == client_id,
+        )
+    )
+    mejor: tuple[User, float] | None = None
+    for user, blob in db.execute(query).all():
+        ref = np.frombuffer(blob, dtype=np.float32)
+        if ref.shape != vector.shape:
+            continue
+        score = embedder.similarity(vector, ref)
+        if mejor is None or score > mejor[1]:
+            mejor = (user, score)
+    if mejor is None or mejor[1] < settings.face_duplicate_threshold:
+        return None
+    return mejor
+
+
 def _get_user(
     db: Session, username: str, request: Request | None = None, user_uuid: str | None = None
 ) -> User:
@@ -117,6 +153,18 @@ def register(
 
     features = _embedding_from_bytes(image.file.read())
 
+    cliente = api_client_id(request)
+    duplicado = find_duplicate_face(db, features, exclude_user_id=0, client_id=cliente)
+    if duplicado is not None and settings.face_reject_duplicates:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Esa cara ya esta matriculada en otra cuenta del mismo sistema "
+                f"(similitud {duplicado[1]:.3f}). Una sola foto abre las dos cuentas; "
+                "revisa la matricula de esa otra cuenta."
+            ),
+        )
+
     if password:
         from passlib.context import CryptContext
 
@@ -138,11 +186,18 @@ def register(
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
     db.refresh(user)
+    mensaje = "Cara registrada correctamente"
+    if duplicado is not None and not settings.face_reject_duplicates:
+        mensaje += (
+            f" PERO se parece a la de otra cuenta del mismo sistema "
+            f"(similitud {duplicado[1]:.3f})."
+        )
     return FaceRegisterResponse(
         username=username,
         uuid=str(user.uuid),
         algorithm=ALGORITHM,
-        message="Cara registrada correctamente",
+        message=mensaje,
+        duplicate_similarity=None if duplicado is None else round(duplicado[1], 4),
     )
 
 

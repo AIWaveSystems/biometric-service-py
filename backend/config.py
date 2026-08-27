@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     session_expire_minutes: int = 15
 
     face_threshold: float = 0.363
+    face_duplicate_threshold: float = 0.85
+    face_reject_duplicates: bool = True
+    face_max_templates_per_user: int = 12
     voice_z_threshold: float = -2.5
     voice_llr_threshold: float = 1.2
     voice_embedding_threshold: float = 0.35

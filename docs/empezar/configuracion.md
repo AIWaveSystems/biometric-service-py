@@ -45,8 +45,14 @@ y no da acceso a `/api/*`.
 | Variable | Por defecto | Descripcion |
 | --- | --- | --- |
 | `FACE_THRESHOLD` | `0.363` | Similitud coseno minima contra la mejor plantilla |
+| `FACE_DUPLICATE_THRESHOLD` | `0.85` | Umbral para detectar la misma cara en otra cuenta del mismo sistema |
+| `FACE_REJECT_DUPLICATES` | `true` | Rechazar (409) la matricula de una cara ya registrada en el mismo sistema |
+| `FACE_MAX_TEMPLATES_PER_USER` | `12` | Maximo de plantillas faciales por usuario |
 
 Rango util 0..1. Subirlo aumenta la seguridad y los falsos rechazos.
+
+La guardia de duplicados solo compara dentro del **mismo cliente API** (cada sistema
+tiene sus cuentas); entre sistemas distintos el mismo rostro esta permitido.
 
 ---
 

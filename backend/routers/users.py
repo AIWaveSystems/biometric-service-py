@@ -19,6 +19,7 @@ from ..ownership import (
 )
 from ..schemas import PaginationParams, UserResponse, VoiceRegisterResponse
 from ..utils.pagination import paginate, paginated_response
+from .face import find_duplicate_face
 from .voice import build_template, find_duplicate_voice
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -88,13 +89,18 @@ def register(
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
     registered = []
+    cliente = api_client_id(request)
     if face_files:
         n_faces = 0
         rejected = None
         accepted: list = []
         n_redundant = 0
         n_unreadable = 0
+        n_duplicates = 0
+        max_templates = settings.face_max_templates_per_user
         for upload in face_files:
+            if n_faces >= max_templates:
+                break
             try:
                 img = detector.load_image(upload.file.read())
             except ValueError:
@@ -110,6 +116,18 @@ def register(
                 rejected = problem
                 continue
             vector = embedder.embed(img, face)
+            duplicado = find_duplicate_face(db, vector, user.id, cliente)
+            if duplicado is not None and settings.face_reject_duplicates:
+                db.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Esa cara ya esta matriculada en otra cuenta del mismo sistema "
+                        f"(similitud {duplicado[1]:.3f}). El usuario no se ha creado."
+                    ),
+                )
+            if duplicado is not None:
+                n_duplicates += 1
             if quality.is_redundant(vector, accepted):
                 n_redundant += 1
                 continue
@@ -125,7 +143,15 @@ def register(
                 else "No se detecto ninguna cara en las imagenes"
             )
             raise HTTPException(status_code=400, detail=detail)
+        if n_duplicates and not settings.face_reject_duplicates:
+            registered.append(
+                f"{n_duplicates} foto(s) parecida(s) a otra cuenta del mismo sistema"
+            )
         registered.append(f"cara x{n_faces}")
+        if n_faces >= max_templates:
+            registered.append(
+                f"limite de {max_templates} plantillas faciales por usuario alcanzado"
+            )
         if n_redundant:
             registered.append(f"{n_redundant} foto(s) descartada(s) por ser casi identicas")
         if n_unreadable:
@@ -260,13 +286,25 @@ def add_faces(
         if t.algorithm == "sface"
     ]
     n_existing = len(accepted)
+    max_templates = settings.face_max_templates_per_user
+    if n_existing >= max_templates:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El usuario ya alcanzo el maximo de {max_templates} plantillas faciales. "
+                "Borra alguna o vuelve a registrar la cara."
+            ),
+        )
 
     added = 0
     n_redundant = 0
     n_no_face = 0
     n_unreadable = 0
+    n_duplicates = 0
     rejected: str | None = None
     for upload in uploads:
+        if added + n_existing >= max_templates:
+            break
         try:
             img = detector.load_image(upload.file.read())
         except ValueError:
@@ -282,6 +320,18 @@ def add_faces(
             rejected = problem
             continue
         vector = embedder.embed(img, face)
+        duplicado = find_duplicate_face(db, vector, user.id, api_client_id(request))
+        if duplicado is not None and settings.face_reject_duplicates:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Esa cara ya esta matriculada en otra cuenta del mismo sistema "
+                    f"(similitud {duplicado[1]:.3f}). Revisa la matricula de esa otra cuenta."
+                ),
+            )
+        if duplicado is not None:
+            n_duplicates += 1
         if quality.is_redundant(vector, accepted):
             n_redundant += 1
             continue
@@ -302,7 +352,7 @@ def add_faces(
         raise HTTPException(status_code=400, detail=detail)
 
     db.commit()
-    return {
+    respuesta = {
         "username": username,
         "uuid": str(user.uuid),
         "added": added,
@@ -311,6 +361,11 @@ def add_faces(
         "unreadable": n_unreadable,
         "total_templates": n_existing + added,
     }
+    if n_duplicates and not settings.face_reject_duplicates:
+        respuesta["duplicates"] = n_duplicates
+    if added + n_existing >= max_templates:
+        respuesta["limit_reached"] = True
+    return respuesta
 
 
 @router.post("/{username}/password")

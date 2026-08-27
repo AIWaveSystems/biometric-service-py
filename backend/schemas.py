@@ -16,6 +16,7 @@ class FaceRegisterResponse(BaseModel):
     uuid: str
     algorithm: str
     message: str
+    duplicate_similarity: float | None = None
 
 
 class FaceVerifyResponse(BaseModel):
