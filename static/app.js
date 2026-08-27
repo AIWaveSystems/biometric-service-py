@@ -1228,7 +1228,9 @@ function buildEditor(u, refrescar) {
         `Añadidas ${r.added} plantilla(s). Total: ${r.total_templates}.` +
           (r.redundant ? ` ${r.redundant} descartada(s) por redundancia.` : "") +
           (r.without_face ? ` ${r.without_face} sin cara detectable.` : "") +
-          (r.unreadable ? ` ${r.unreadable} ilegible(s) ignorada(s) (usa JPG o PNG).` : "")
+          (r.unreadable ? ` ${r.unreadable} ilegible(s) ignorada(s) (usa JPG o PNG).` : "") +
+          (r.duplicates ? ` ${r.duplicates} parecida(s) a otra cuenta del sistema.` : "") +
+          (r.limit_reached ? ` Límite de plantillas alcanzado.` : "")
       );
     })
   );
@@ -1280,7 +1282,11 @@ function buildEditor(u, refrescar) {
       closeCamera(video);
       camWrap.hidden = true;
       setState(estadoCam, "", "");
-      ok(`Añadidas ${r.added} plantilla(s) desde la cámara. Total: ${r.total_templates}.`);
+      ok(
+        `Añadidas ${r.added} plantilla(s) desde la cámara. Total: ${r.total_templates}.` +
+          (r.duplicates ? ` ${r.duplicates} parecida(s) a otra cuenta del sistema.` : "") +
+          (r.limit_reached ? ` Límite de plantillas alcanzado.` : "")
+      );
     })
   );
   fCam.appendChild(estadoCam);
