@@ -828,9 +828,16 @@ function chooseAccount(out, matches) {
     `<button id="login-target-use" class="btn"><span>Probar con esta cuenta</span></button>` +
     `<button id="login-target-cancel" class="btn"><span>Cancelar</span></button></div>`;
   return new Promise((resolve) => {
-    $("login-target-use").addEventListener("click", () =>
-      resolve($("login-target-choice").value),
-    );
+    $("login-target-use").addEventListener("click", () => {
+      const useBtn = $("login-target-use");
+      const cancelBtn = $("login-target-cancel");
+      useBtn.disabled = true;
+      cancelBtn.disabled = true;
+      out.className = "result info";
+      out.innerHTML =
+        `<span class="spinner"></span> Verificando con esa cuenta…`;
+      resolve($("login-target-choice").value);
+    });
     $("login-target-cancel").addEventListener("click", () => resolve(null));
   });
 }

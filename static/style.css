@@ -148,6 +148,21 @@ h2 { margin-bottom: 16px; font-size: 18px; }
 .state.err { color: var(--err); }
 .state.busy { color: var(--accent); }
 
+.spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: spinner-rotate 0.7s linear infinite;
+}
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
 /* ---------- botones con iconos ---------- */
 .btn {
   display: inline-flex;
