@@ -18,7 +18,18 @@ POST /api/users/register
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `username` | text | yes | 3 to 100 characters, unique |
+| `username` | text | yes | 3 to 100 characters, unique within your system |
+
+!!! note "Per-system names"
+    `username` uniqueness is **per API client**: each connected web has its own namespace
+    and the same person (or the same name) can exist across several webs without conflict.
+    Within a single system the name remains unique.
+
+!!! tip "What to send as `username`"
+    Send the identifier your own web already uses for normal login: their username or
+    email. Since that value is already unique inside your system it will never collide,
+    and users keep one mental credential across both sides. Do not invent new
+    identifiers just for this service.
 | `password` | text | no | 6 to 128 characters |
 | `image` | file | no | One photo |
 | `images` | file[] | no | Several photos, repeating the field |
@@ -65,8 +76,9 @@ curl -X POST http://localhost:8000/api/users/register \
 | --- | --- |
 | 400 | No biometrics and no password arrived |
 | 400 | No photo has a detectable face or sufficient quality |
-| 409 | The username already exists |
+| 409 | The username already exists (within your system) |
 | 409 | The voice is already enrolled on another account (see [Voice](voz.md#duplicate-detection)) |
+| 409 | The face is already enrolled on another account of the same system (see [duplicates](rostro.en.md#duplicates-within-the-same-system)) |
 
 ---
 
@@ -80,6 +92,17 @@ GET /api/users
 
 Returns an array with the same object as `register`, one per user. Useful for populating an
 administration panel.
+
+Accepts the common listing parameters (`page`, `limit`, `search`, `sort_by`, `sort_dir`)
+plus:
+
+| Parameter | Values | Effect |
+| --- | --- | --- |
+| `owner` | *(empty)* | All systems |
+| `owner` | `portal` | Only users created from the portal |
+| `owner` | API client UUID | Only users of that system |
+
+An invalid `owner` returns **400**.
 
 ```json
 [
@@ -131,8 +154,20 @@ POST /api/users/{username}/faces
 | `image` | file | One photo |
 | `images` | file[] | Several photos |
 
-Templates **accumulate**: earlier ones are not deleted. Each photo passes three filters
-before being stored.
+!!! warning "Accepted formats"
+    **JPG** and **PNG** only. Files in other formats (iPhone HEIC/HEIF, AVIF, WEBP)
+    cannot be decoded and are ignored; if no photo can be read the response is **400**.
+
+Templates **accumulate** up to a maximum of `FACE_MAX_TEMPLATES_PER_USER` (12 by default);
+once reached the endpoint responds **400** so the matching cost does not grow. Each photo
+passes several filters before being stored: readable (JPG/PNG), a face present, sufficient
+quality, not redundant with the existing ones, and —when the request comes from an API
+client— not already enrolled on another account of the same system (see
+[duplicates](rostro.en.md#duplicates-within-the-same-system)).
+
+With `FACE_REJECT_DUPLICATES=true` (the default), a duplicate photo fails the **whole request
+with 409** and nothing is stored. With `false` the photo is stored but counted in
+`duplicates` (and that field only appears in that mode).
 
 ```mermaid
 flowchart LR
@@ -140,9 +175,14 @@ flowchart LR
     B -->|no| X1[no face]
     B -->|yes| C{Sufficient<br/>quality?}
     C -->|no| X2[rejected]
-    C -->|yes| D{Redundant with<br/>existing ones?}
-    D -->|yes| X3[discarded]
-    D -->|no| E[Template stored]
+    C -->|yes| D{Already enrolled on<br/>another account?}
+    D -->|yes| E1{reject_duplicates?}
+    E1 -->|yes| E2[409, nothing stored]
+    E1 -->|no| E3[counts as duplicate]
+    D -->|no| F{Redundant with<br/>existing ones?}
+    F -->|yes| X3[discarded]
+    F -->|no| G[Template stored]
+    E3 --> F
 ```
 
 ```json
@@ -152,12 +192,21 @@ flowchart LR
   "added": 4,
   "redundant": 2,
   "without_face": 1,
+  "unreadable": 0,
+  "duplicates": 1,
+  "limit_reached": false,
   "total_templates": 9
 }
 ```
 
 If `added` is 0 the response is **400** with the specific reason: a quality problem, all
-redundant, or no face detected.
+redundant, no face detected, no readable image (unsupported format), or the user already
+reached the template limit.
+
+`limit_reached` is set when the `FACE_MAX_TEMPLATES_PER_USER` ceiling is reached. The
+example combines `added` with `duplicates` because it assumes
+`FACE_REJECT_DUPLICATES=false`; with the default `true` the same situation would have
+returned **409** instead of this response, so `duplicates` would not appear.
 
 !!! tip "How many photos"
     Between 8 and 12 templates per person, varying expression, angle, glasses and lighting.

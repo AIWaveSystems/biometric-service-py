@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from passlib.context import CryptContext
@@ -8,10 +10,16 @@ from sqlalchemy.orm import Session
 from ..biometrics.face import detector, embedder, quality
 from ..config import settings
 from ..database import get_db
-from ..models import FaceTemplate, User
-from ..ownership import api_client_id, scope_user_query
+from ..models import ApiClient, FaceTemplate, User
+from ..ownership import (
+    api_client_id,
+    resolve_user,
+    scope_new_username,
+    scope_user_query,
+)
 from ..schemas import PaginationParams, UserResponse, VoiceRegisterResponse
 from ..utils.pagination import paginate, paginated_response
+from .face import find_duplicate_face
 from .voice import build_template, find_duplicate_voice
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -57,7 +65,7 @@ def register(
     audio: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
 ):
-    existing_query = scope_user_query(select(User).where(User.username == username), request, User)
+    existing_query = scope_new_username(select(User).where(User.username == username), request, User)
     existing = db.execute(existing_query).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=409, detail="El usuario ya existe")
@@ -81,13 +89,23 @@ def register(
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
     registered = []
+    cliente = api_client_id(request)
     if face_files:
         n_faces = 0
         rejected = None
         accepted: list = []
         n_redundant = 0
+        n_unreadable = 0
+        n_duplicates = 0
+        max_templates = settings.face_max_templates_per_user
         for upload in face_files:
-            img = detector.load_image(upload.file.read())
+            if n_faces >= max_templates:
+                break
+            try:
+                img = detector.load_image(upload.file.read())
+            except ValueError:
+                n_unreadable += 1
+                continue
             face = embedder.primary_face(img)
             if face is None:
                 continue
@@ -98,6 +116,18 @@ def register(
                 rejected = problem
                 continue
             vector = embedder.embed(img, face)
+            duplicado = find_duplicate_face(db, vector, user.id, cliente)
+            if duplicado is not None and settings.face_reject_duplicates:
+                db.rollback()
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Esa cara ya esta matriculada en otra cuenta del mismo sistema "
+                        f"(similitud {duplicado[1]:.3f}). El usuario no se ha creado."
+                    ),
+                )
+            if duplicado is not None:
+                n_duplicates += 1
             if quality.is_redundant(vector, accepted):
                 n_redundant += 1
                 continue
@@ -107,13 +137,27 @@ def register(
             )
             n_faces += 1
         if n_faces == 0:
-            raise HTTPException(
-                status_code=400,
-                detail=rejected or "No se detecto ninguna cara en las imagenes",
+            detail = rejected or (
+                "Ninguna imagen se pudo leer (formato no soportado; usa JPG o PNG)"
+                if n_unreadable and n_unreadable == len(face_files)
+                else "No se detecto ninguna cara en las imagenes"
+            )
+            raise HTTPException(status_code=400, detail=detail)
+        if n_duplicates and not settings.face_reject_duplicates:
+            registered.append(
+                f"{n_duplicates} foto(s) parecida(s) a otra cuenta del mismo sistema"
             )
         registered.append(f"cara x{n_faces}")
+        if n_faces >= max_templates:
+            registered.append(
+                f"limite de {max_templates} plantillas faciales por usuario alcanzado"
+            )
         if n_redundant:
             registered.append(f"{n_redundant} foto(s) descartada(s) por ser casi identicas")
+        if n_unreadable:
+            registered.append(
+                f"{n_unreadable} archivo(s) ilegible(s) ignorado(s); usa JPG o PNG"
+            )
 
     voice_result = None
     if audio is not None:
@@ -127,12 +171,12 @@ def register(
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"Esa voz ya esta matriculada como '{duplicado[0]}' "
+                    "Esa voz ya esta matriculada en otra cuenta "
                     f"(similitud {duplicado[1]:.3f}). El usuario no se ha creado."
                 ),
             )
         if duplicado is not None:
-            registered.append(f"AVISO: la voz se parece a la de '{duplicado[0]}'")
+            registered.append("AVISO: la voz se parece a la de otra cuenta existente")
         db.add(template)
         voice_result = VoiceRegisterResponse(
             username=username,
@@ -165,6 +209,7 @@ def list_users(
     page: int | None = Query(default=None, ge=1),
     limit: int = Query(default=25, ge=1, le=100),
     search: str | None = Query(default=None, max_length=100),
+    owner: str | None = Query(default=None, max_length=64),
     sort_by: str = Query(default="username", max_length=50),
     sort_dir: str = Query(default="asc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
@@ -172,13 +217,19 @@ def list_users(
     params = PaginationParams(
         page=page or 1, limit=limit, search=search, sort_by=sort_by, sort_dir=sort_dir
     )
-    if page is None and search is None and sort_by == "username" and sort_dir == "asc":
-        users = db.execute(select(User).order_by(User.username)).scalars().all()
+    query = select(User)
+    if owner is not None:
+        query = _filter_by_owner(db, query, owner)
+    fast_path = (
+        page is None and search is None and owner is None and sort_by == "username" and sort_dir == "asc"
+    )
+    if fast_path:
+        users = db.execute(query.order_by(User.username)).scalars().all()
         return [_user_response(u) for u in users]
     try:
         users, meta = paginate(
             db,
-            select(User),
+            query,
             params,
             (User.username,),
             {"username": User.username, "created_at": User.created_at, "uuid": User.uuid},
@@ -186,6 +237,19 @@ def list_users(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return paginated_response([_user_response(u) for u in users], meta)
+
+
+def _filter_by_owner(db: Session, query, owner: str):
+    if owner == "portal":
+        return query.where(User.api_client_id.is_(None))
+    try:
+        client_uuid = UUID(owner)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Sistema cliente desconocido")
+    client = db.execute(select(ApiClient).where(ApiClient.uuid == client_uuid)).scalar_one_or_none()
+    if client is None:
+        raise HTTPException(status_code=400, detail="Sistema cliente desconocido")
+    return query.where(User.api_client_id == client.id)
 
 
 @router.get("/by-uuid/{user_uuid}", response_model=UserResponse)
@@ -197,14 +261,10 @@ def get_by_uuid(user_uuid: str, request: Request, db: Session = Depends(get_db))
     return _user_response(user)
 
 
-def _get_user(db: Session, username: str, request: Request | None = None) -> User:
-    query = select(User).where(User.username == username)
-    if request is not None:
-        query = scope_user_query(query, request, User)
-    user = db.execute(query).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return user
+def _get_user(
+    db: Session, username: str, request: Request | None = None, user_uuid: str | None = None
+) -> User:
+    return resolve_user(db, request, username, user_uuid)
 
 
 @router.post("/{username}/faces")
@@ -226,13 +286,30 @@ def add_faces(
         if t.algorithm == "sface"
     ]
     n_existing = len(accepted)
+    max_templates = settings.face_max_templates_per_user
+    if n_existing >= max_templates:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"El usuario ya alcanzo el maximo de {max_templates} plantillas faciales. "
+                "Borra alguna o vuelve a registrar la cara."
+            ),
+        )
 
     added = 0
     n_redundant = 0
     n_no_face = 0
+    n_unreadable = 0
+    n_duplicates = 0
     rejected: str | None = None
     for upload in uploads:
-        img = detector.load_image(upload.file.read())
+        if added + n_existing >= max_templates:
+            break
+        try:
+            img = detector.load_image(upload.file.read())
+        except ValueError:
+            n_unreadable += 1
+            continue
         face = embedder.primary_face(img)
         if face is None:
             n_no_face += 1
@@ -243,6 +320,18 @@ def add_faces(
             rejected = problem
             continue
         vector = embedder.embed(img, face)
+        duplicado = find_duplicate_face(db, vector, user.id, api_client_id(request))
+        if duplicado is not None and settings.face_reject_duplicates:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Esa cara ya esta matriculada en otra cuenta del mismo sistema "
+                    f"(similitud {duplicado[1]:.3f}). Revisa la matricula de esa otra cuenta."
+                ),
+            )
+        if duplicado is not None:
+            n_duplicates += 1
         if quality.is_redundant(vector, accepted):
             n_redundant += 1
             continue
@@ -252,22 +341,31 @@ def add_faces(
 
     if added == 0:
         db.rollback()
-        detail = rejected or (
-            "Todas las fotos son casi identicas a las que ya tiene el usuario"
-            if n_redundant
-            else "No se detecto ninguna cara en las imagenes"
-        )
+        if rejected is None and n_unreadable and n_unreadable == len(uploads):
+            detail = "Ninguna imagen se pudo leer (formato no soportado; usa JPG o PNG)"
+        else:
+            detail = rejected or (
+                "Todas las fotos son casi identicas a las que ya tiene el usuario"
+                if n_redundant
+                else "No se detecto ninguna cara en las imagenes"
+            )
         raise HTTPException(status_code=400, detail=detail)
 
     db.commit()
-    return {
+    respuesta = {
         "username": username,
         "uuid": str(user.uuid),
         "added": added,
         "redundant": n_redundant,
         "without_face": n_no_face,
+        "unreadable": n_unreadable,
         "total_templates": n_existing + added,
     }
+    if n_duplicates and not settings.face_reject_duplicates:
+        respuesta["duplicates"] = n_duplicates
+    if added + n_existing >= max_templates:
+        respuesta["limit_reached"] = True
+    return respuesta
 
 
 @router.post("/{username}/password")
@@ -309,10 +407,7 @@ def rename_user(
 
 @router.delete("/{username}")
 def delete_user(username: str, request: Request, db: Session = Depends(get_db)):
-    query = scope_user_query(select(User).where(User.username == username), request, User)
-    user = db.execute(query).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    user = resolve_user(db, request, username)
     deleted_uuid = str(user.uuid)
     db.delete(user)
     db.commit()
@@ -336,7 +431,7 @@ def add_faces_by_uuid(
     db: Session = Depends(get_db),
 ):
     user = _get_user_by_uuid(db, user_uuid, request)
-    return add_faces(user.username, request, image, images, db)
+    return add_faces(request, user.username, image, images, db)
 
 
 @router.post("/by-uuid/{user_uuid}/password")
@@ -347,7 +442,7 @@ def set_password_by_uuid(
     db: Session = Depends(get_db),
 ):
     user = _get_user_by_uuid(db, user_uuid, request)
-    return set_password(user.username, request, password, db)
+    return set_password(request, user.username, password, db)
 
 
 @router.post("/by-uuid/{user_uuid}/rename")
@@ -358,7 +453,7 @@ def rename_user_by_uuid(
     db: Session = Depends(get_db),
 ):
     user = _get_user_by_uuid(db, user_uuid, request)
-    return rename_user(user.username, request, new_username, db)
+    return rename_user(request, user.username, new_username, db)
 
 
 @router.delete("/by-uuid/{user_uuid}")

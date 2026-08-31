@@ -45,8 +45,14 @@ no access to `/api/*`.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `FACE_THRESHOLD` | `0.363` | Minimum cosine similarity against the best template |
+| `FACE_DUPLICATE_THRESHOLD` | `0.85` | Threshold for detecting the same face on another account of the same system |
+| `FACE_REJECT_DUPLICATES` | `true` | Reject (409) enrollment of a face already registered in the same system |
+| `FACE_MAX_TEMPLATES_PER_USER` | `12` | Maximum face templates per user |
 
 Useful range 0..1. Raising it increases security and false rejections.
+
+The duplicate guard only compares within the **same API client** (each system has its
+own accounts); the same face is allowed across different systems.
 
 ---
 

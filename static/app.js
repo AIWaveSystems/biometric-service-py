@@ -71,8 +71,7 @@ async function validatePortalSession() {
     updateWhoami();
     return true;
   } catch {
-    clearPortalSession();
-    showGate();
+    returnToGate();
     return false;
   }
 }
@@ -85,6 +84,24 @@ function showGate() {
 function enterApp() {
   $("gate").hidden = true;
   $("app").hidden = false;
+  const name = hashTab();
+  if (name) applyTab(name);
+}
+
+function returnToGate(message) {
+  closeAllCameras();
+  stopVoice();
+  ["reg", "login", "challenge", "enroll", "analizar"].forEach(clearPlayback);
+  window._regPhotos = null;
+  window._regVoice = null;
+  window._digitEnroll = null;
+  window._challenge = null;
+  window._loginFrames = null;
+  window._loginVoice = null;
+  clearPortalSession();
+  showGate();
+  $("gate-user").focus();
+  if (message) toast(message);
 }
 
 function toast(msg) {
@@ -105,6 +122,15 @@ function formatError(detail) {
   if (typeof detail === "object" && detail !== null) return JSON.stringify(detail);
   return detail || "Error desconocido";
 }
+
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[c]);
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -127,9 +153,7 @@ async function api(url, opts = {}) {
     data = { detail: r.statusText };
   }
   if (r.status === 401) {
-    clearPortalSession();
-    showGate();
-    toast("Sesión expirada. Vuelve a entrar.");
+    returnToGate("Sesión expirada. Vuelve a entrar.");
     throw new Error(formatError(data.detail) || "No autorizado");
   }
   if (!r.ok) throw new Error(formatError(data.detail) || `Error ${r.status}`);
@@ -207,14 +231,17 @@ $("gate-pass").addEventListener("keydown", (e) => {
 });
 
 $("logout-btn").addEventListener("click", () => {
-  closeAllCameras();
-  clearPlayback("reg");
-  clearPlayback("login");
-  clearPortalSession();
-  showGate();
+  returnToGate();
 });
 
-function activateTab(name) {
+const TABS = ["login", "registro", "gestion", "clientes", "operadores"];
+
+function hashTab() {
+  const name = decodeURIComponent(location.hash.replace(/^#/, ""));
+  return TABS.includes(name) ? name : null;
+}
+
+function applyTab(name) {
   document.querySelectorAll(".tab").forEach((t) => {
     t.classList.toggle("active", t.dataset.tab === name);
   });
@@ -224,13 +251,25 @@ function activateTab(name) {
   if (name === "gestion") {
     loadUsers();
     loadVoiceSystemBanner();
+    loadOwnerOptions();
   }
   if (name === "clientes") loadClients();
   if (name === "operadores") loadOperators();
 }
 
+function activateTab(name) {
+  applyTab(name);
+  if (hashTab() !== name) location.hash = encodeURIComponent(name);
+}
+
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => activateTab(tab.dataset.tab));
+});
+
+window.addEventListener("hashchange", () => {
+  const name = hashTab();
+  const visible = document.querySelector(".panel.active");
+  if (name && (!visible || visible.id !== "tab-" + name)) applyTab(name);
 });
 
 let camStreams = {};
@@ -712,8 +751,23 @@ $("login-challenge").addEventListener("click", async () => {
   clearPlayback("challenge");
   setState(state, "Pidiendo desafío…", "busy");
   try {
+    const found = await resolveLoginAccounts(username);
+    if (found.missing) {
+      setState(state, "Sin desafío", "");
+      return showResult($("login-result"), "err", `El usuario ${username} no existe en ningún sistema`);
+    }
+    let userUuid = found.uuid;
+    if (found.matches) {
+      setState(state, "Elige a qué cuenta corresponde…", "busy");
+      userUuid = await chooseAccount($("login-result"), found.matches);
+      if (!userUuid) {
+        setState(state, "Sin desafío", "");
+        return showResult($("login-result"), "info", "Operación cancelada");
+      }
+    }
     const fd = new FormData();
     fd.append("username", username);
+    loginTargetAppend(fd, userUuid);
     const ch = await api("/api/voice/challenge", { method: "POST", body: fd });
 
     setBtnText(btn, "Grabando…");
@@ -752,6 +806,46 @@ function sessionLine(res) {
   return `\nSesión iniciada (token válido ${minutes} min): ${res.access_token.slice(0, 24)}…`;
 }
 
+async function resolveLoginAccounts(username) {
+  const data = await api(`/api/users?page=1&limit=100&search=${encodeURIComponent(username)}`);
+  const matches = (data.items || data).filter((u) => u.username === username);
+  if (!matches.length) return { missing: true };
+  if (matches.length === 1) return { uuid: matches[0].uuid };
+  return { matches };
+}
+
+function chooseAccount(out, matches) {
+  const opts = matches
+    .map((m) => {
+      const owner = m.owner ? m.owner.name : "Portal / admin";
+      return `<option value="${esc(m.uuid)}">${esc(owner)} · ${esc(m.username)} (${esc(m.uuid.slice(0, 8))}…)</option>`;
+    })
+    .join("");
+  out.innerHTML =
+    `<p>Ese nombre existe en varios sistemas. Elige a qué cuenta corresponde:</p>` +
+    `<div class="field"><label>Cuenta</label><select id="login-target-choice">${opts}</select></div>` +
+    `<div class="chooser-actions">` +
+    `<button id="login-target-use" class="btn"><span>Probar con esta cuenta</span></button>` +
+    `<button id="login-target-cancel" class="btn"><span>Cancelar</span></button></div>`;
+  return new Promise((resolve) => {
+    $("login-target-use").addEventListener("click", () => {
+      const uuid = $("login-target-choice").value;
+      $("login-target-use").disabled = true;
+      $("login-target-cancel").disabled = true;
+      out.className = "result info";
+      out.innerHTML =
+        `<span class="spinner"></span> Verificando con esa cuenta…`;
+      resolve(uuid);
+    });
+    $("login-target-cancel").addEventListener("click", () => resolve(null));
+  });
+}
+
+function loginTargetAppend(fdOrBody, uuid) {
+  if (fdOrBody instanceof FormData) fdOrBody.append("user_uuid", uuid);
+  else fdOrBody.user_uuid = uuid;
+}
+
 $("login-btn").addEventListener("click", async () => {
   const username = $("login-username").value.trim();
   const mode = $("login-mode").value;
@@ -762,11 +856,23 @@ $("login-btn").addEventListener("click", async () => {
   btn.disabled = true;
   setBtnText(btn, "Verificando…");
   try {
+    const found = await resolveLoginAccounts(username);
+    if (found.missing)
+      return showResult(out, "err", `El usuario ${username} no existe en ningún sistema`);
+    let userUuid = found.uuid;
+    if (found.matches) userUuid = await chooseAccount(out, found.matches);
+    if (!userUuid) {
+      setBtnText(btn, "Entrar");
+      return showResult(out, "info", "Operación cancelada");
+    }
+
     if (mode === "password") {
-      const r = await apiJson("/api/auth/login", {
+      const body = {
         username,
         password: $("login-password").value,
-      });
+      };
+      loginTargetAppend(body, userUuid);
+      const r = await apiJson("/api/auth/login", body);
       showResult(out, "ok", `Autenticado correctamente.${sessionLine(r)}`);
       return;
     }
@@ -782,6 +888,7 @@ $("login-btn").addEventListener("click", async () => {
       const { id, blob, digits } = window._challenge;
       const fd = new FormData();
       fd.append("username", username);
+      loginTargetAppend(fd, userUuid);
       fd.append("challenge_id", id);
       fd.append("audio", blob, "challenge.wav");
       const r = await api("/api/voice/challenge/verify", { method: "POST", body: fd });
@@ -814,6 +921,7 @@ $("login-btn").addEventListener("click", async () => {
       }
       const fd = new FormData();
       fd.append("username", username);
+      loginTargetAppend(fd, userUuid);
       window._loginFrames.forEach((b, i) => fd.append("frames", b, `f${i}.jpg`));
       const r = await api("/api/face/login", { method: "POST", body: fd });
       window._loginFrames = null;
@@ -829,11 +937,11 @@ $("login-btn").addEventListener("click", async () => {
           "err",
           `Rostro NO verificado.\n${r.reason || ""}\n` +
             `Liveness: ${r.liveness_passed ? "detectado" : "no detectado"} · ` +
-            `Similitud: ${r.similarity} (umbral ${r.threshold}) · ` +
+            `Similitud: core ${r.core} / mejor ${r.similarity} (umbral ${r.threshold}) · ` +
             `Caras: ${r.n_faces}/${r.n_frames}${usable}`
         );
       }
-      faceInfo = `Rostro verificado (liveness OK · similitud ${r.similarity})`;
+      faceInfo = `Rostro verificado (liveness OK · core ${r.core} / mejor ${r.similarity}, umbral ${r.threshold})`;
       if (mode === "face") {
         return showResult(out, "ok", `${faceInfo}\nBienvenido, ${username}.${sessionLine(r)}`);
       }
@@ -844,6 +952,7 @@ $("login-btn").addEventListener("click", async () => {
       if (!window._loginVoice) return showResult(out, "err", "Graba tu voz primero");
       const fd = new FormData();
       fd.append("username", username);
+      loginTargetAppend(fd, userUuid);
       fd.append("audio", window._loginVoice, "voice.wav");
       const r = await api("/api/voice/verify", { method: "POST", body: fd });
       window._loginVoice = null;
@@ -871,7 +980,7 @@ $("login-btn").addEventListener("click", async () => {
 
 const COLS = 7;
 const listState = {
-  users: { page: 1, limit: 25 },
+  users: { page: 1, limit: 25, owner: "" },
   clients: { page: 1, limit: 25 },
   operators: { page: 1, limit: 25 },
 };
@@ -886,6 +995,7 @@ function listUrl(path, key) {
     sort_dir: $(key + "-direction").value,
   });
   if (search) query.set("search", search);
+  if (key === "users" && state.owner) query.set("owner", state.owner);
   return `${path}?${query}`;
 }
 
@@ -1030,6 +1140,9 @@ function buildEditor(u, refrescar) {
   const inNombre = document.createElement("input");
   inNombre.type = "text";
   inNombre.value = u.username;
+  inNombre.placeholder = "Nuevo nombre de usuario";
+  inNombre.autocomplete = "off";
+  inNombre.setAttribute("aria-label", "Renombrar usuario");
   fIdent.appendChild(inNombre);
   fIdent.appendChild(
     boton("Renombrar", "", async () => {
@@ -1052,6 +1165,8 @@ function buildEditor(u, refrescar) {
   const inClave = document.createElement("input");
   inClave.type = "password";
   inClave.placeholder = "Nueva contraseña (mín. 6)";
+  inClave.autocomplete = "new-password";
+  inClave.setAttribute("aria-label", "Nueva contraseña del usuario");
   fClave.appendChild(inClave);
   fClave.appendChild(
     boton("Guardar", "primary", async () => {
@@ -1103,8 +1218,10 @@ function buildEditor(u, refrescar) {
   const fRostro = fila(rostro);
   const inFotos = document.createElement("input");
   inFotos.type = "file";
-  inFotos.accept = "image/*";
+  inFotos.accept = "image/jpeg,image/png,.jpg,.jpeg,.png";
   inFotos.multiple = true;
+  inFotos.setAttribute("aria-label", "Elegir fotos de rostro");
+  inFotos.title = "Elige una o varias fotos de rostro (solo JPG o PNG)";
   fRostro.appendChild(inFotos);
   fRostro.appendChild(
     boton("Subir fotos", "primary", async () => {
@@ -1116,7 +1233,10 @@ function buildEditor(u, refrescar) {
       ok(
         `Añadidas ${r.added} plantilla(s). Total: ${r.total_templates}.` +
           (r.redundant ? ` ${r.redundant} descartada(s) por redundancia.` : "") +
-          (r.without_face ? ` ${r.without_face} sin cara detectable.` : "")
+          (r.without_face ? ` ${r.without_face} sin cara detectable.` : "") +
+          (r.unreadable ? ` ${r.unreadable} ilegible(s) ignorada(s) (usa JPG o PNG).` : "") +
+          (r.duplicates ? ` ${r.duplicates} parecida(s) a otra cuenta del sistema.` : "") +
+          (r.limit_reached ? ` Límite de plantillas alcanzado.` : "")
       );
     })
   );
@@ -1168,7 +1288,11 @@ function buildEditor(u, refrescar) {
       closeCamera(video);
       camWrap.hidden = true;
       setState(estadoCam, "", "");
-      ok(`Añadidas ${r.added} plantilla(s) desde la cámara. Total: ${r.total_templates}.`);
+      ok(
+        `Añadidas ${r.added} plantilla(s) desde la cámara. Total: ${r.total_templates}.` +
+          (r.duplicates ? ` ${r.duplicates} parecida(s) a otra cuenta del sistema.` : "") +
+          (r.limit_reached ? ` Límite de plantillas alcanzado.` : "")
+      );
     })
   );
   fCam.appendChild(estadoCam);
@@ -1181,6 +1305,8 @@ function buildEditor(u, refrescar) {
   const inAudio = document.createElement("input");
   inAudio.type = "file";
   inAudio.accept = "audio/wav";
+  inAudio.setAttribute("aria-label", "Elegir archivo WAV de voz");
+  inAudio.title = "Elige un archivo WAV con la voz del usuario";
   fVoz.appendChild(inAudio);
   fVoz.appendChild(
     boton("Subir voz", "primary", async () => {
@@ -1340,8 +1466,8 @@ async function loadUsers() {
     for (const u of users) {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${u.username}</td>
-        <td>${u.owner ? `${u.owner.name} <code>lbs_${u.owner.key_prefix}_…</code>` : "Portal / admin"}</td>
+        <td>${esc(u.username)}</td>
+        <td>${u.owner ? `${esc(u.owner.name)} <code>lbs_${esc(u.owner.key_prefix)}_…</code>` : "Portal / admin"}</td>
         <td>${badge(u.has_password)}</td>
         <td>${
           u.face_templates.length >= 3
@@ -1415,13 +1541,36 @@ async function loadUsers() {
       tbody.innerHTML = `<tr><td colspan="${COLS}">Sin usuarios registrados</td></tr>`;
     renderPagination("users", data, loadUsers);
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="${COLS}">Error: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${COLS}">Error: ${esc(e.message)}</td></tr>`;
   }
 }
+
+async function loadOwnerOptions() {
+  try {
+    const sel = $("users-owner");
+    const data = await api("/api/clients?page=1&limit=100");
+    const clients = data.items || data;
+    for (const c of clients) {
+      if ([...sel.options].some((o) => o.value === c.uuid)) continue;
+      const opt = document.createElement("option");
+      opt.value = c.uuid;
+      opt.textContent = `${c.name}${c.active ? "" : " (revocado)"}`;
+      sel.appendChild(opt);
+    }
+  } catch (e) {
+    return;
+  }
+}
+
+$("users-owner").addEventListener("change", () => {
+  listState.users.page = 1;
+  loadUsers();
+});
 
 $("refresh-users").addEventListener("click", () => {
   loadUsers();
   loadVoiceSystemBanner();
+  loadOwnerOptions();
 });
 
 function clientStatus(c) {
@@ -1434,8 +1583,8 @@ function showKeyResult(el, apiKey, aviso) {
   el.hidden = false;
   el.className = "result ok";
   el.innerHTML =
-    `<strong>API key generada.</strong> ${aviso || "Copia y guarda la clave ahora."}` +
-    `<div class="key-box">${apiKey}</div>`;
+    `<strong>API key generada.</strong> ${esc(aviso || "Copia y guarda la clave ahora.")}` +
+    `<div class="key-box">${esc(apiKey)}</div>`;
 }
 
 async function loadClients() {
@@ -1477,9 +1626,9 @@ async function loadClients() {
       row.appendChild(rotate);
       tdActions.appendChild(row);
       tr.innerHTML = `
-        <td>${c.name}</td>
-        <td><code>lbs_${c.key_prefix}_…</code></td>
-        <td>${scopes}</td>
+        <td>${esc(c.name)}</td>
+        <td><code>lbs_${esc(c.key_prefix)}_…</code></td>
+        <td>${esc(scopes)}</td>
         <td>${clientStatus(c)}</td>
         <td>${fmtDate(c.expires_at)}</td>
         <td>${fmtDate(c.last_used_at)}</td>`;
@@ -1489,7 +1638,7 @@ async function loadClients() {
     if (!clients.length) tbody.innerHTML = '<tr><td colspan="7">Sin clientes API</td></tr>';
     renderPagination("clients", data, loadClients);
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7">Error: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7">Error: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -1558,7 +1707,7 @@ async function loadOperators() {
         tdActions.textContent = "—";
       }
       tr.innerHTML = `
-        <td>${u.username}${bootstrap}</td>
+        <td>${esc(u.username)}${bootstrap}</td>
         <td>${status}</td>
         <td>${fmtDate(u.last_login_at)}</td>`;
       tr.appendChild(tdActions);
@@ -1567,7 +1716,7 @@ async function loadOperators() {
     if (!ops.length) tbody.innerHTML = '<tr><td colspan="4">Sin operadores</td></tr>';
     renderPagination("operators", data, loadOperators);
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="4">Error: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4">Error: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -1576,6 +1725,42 @@ async function loadOperators() {
 });
 
 $("refresh-operators").addEventListener("click", loadOperators);
+
+function generarContrasena(len = 16) {
+  const grupos = [
+    "abcdefghijkmnpqrstuvwxyz",
+    "ABCDEFGHJKLMNPQRSTUVWXYZ",
+    "23456789",
+    "!@#$%&*+-_?",
+  ];
+  const todos = grupos.join("");
+  const azar = () => {
+    const a = new Uint32Array(1);
+    crypto.getRandomValues(a);
+    return a[0];
+  };
+  const chars = grupos.map((g) => g[azar() % g.length]);
+  while (chars.length < len) chars.push(todos[azar() % todos.length]);
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = azar() % (i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
+function wireGenerador(btnId, inputId) {
+  $(btnId).addEventListener("click", () => {
+    const inp = $(inputId);
+    inp.value = generarContrasena();
+    inp.type = "text";
+    inp.focus();
+    inp.select();
+    toast("Contraseña generada: cópiala y guárdala antes de continuar");
+  });
+}
+
+wireGenerador("op-gen-pass", "op-password");
+wireGenerador("op-gen-new", "op-new-pass");
 
 $("op-create-btn").addEventListener("click", async () => {
   const btn = $("op-create-btn");

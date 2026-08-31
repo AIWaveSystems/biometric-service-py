@@ -1,3 +1,5 @@
+import logging
+
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -10,7 +12,12 @@ from ..biometrics.face import detector, embedder, liveness, quality
 from ..config import settings
 from ..database import get_db
 from ..models import FaceTemplate, User
-from ..ownership import api_client_id, scope_user_query
+from ..ownership import (
+    api_client_id,
+    resolve_user,
+    scope_new_username,
+    scope_user_query,
+)
 from ..schemas import (
     FaceIdentifyResponse,
     FaceLoginResponse,
@@ -21,6 +28,8 @@ from ..security import create_session_token, replay_guard
 
 router = APIRouter(prefix="/api/face", tags=["face"])
 
+logger = logging.getLogger("biometric.face")
+
 ALGORITHM = "sface"
 MIN_DETECTION_CONFIDENCE = 0.7
 THUMB_SIZE = (64, 64)
@@ -29,7 +38,13 @@ BORDERLINE_MARGIN = 0.03
 
 
 def _embedding_from_bytes(data: bytes, enforce_quality: bool = True) -> np.ndarray:
-    img = detector.load_image(data)
+    try:
+        img = detector.load_image(data)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="No se pudo leer la imagen (formato no soportado; usa JPG o PNG)",
+        ) from None
     face = embedder.primary_face(img)
     if face is None:
         raise HTTPException(status_code=400, detail="No se detecto ninguna cara en la imagen")
@@ -71,14 +86,46 @@ def _core_similarity(sims: list[float]) -> float:
     return float(np.median(top_half))
 
 
-def _get_user(db: Session, username: str, request: Request | None = None) -> User:
-    query = select(User).where(User.username == username)
-    if request is not None:
-        query = scope_user_query(query, request, User)
-    user = db.execute(query).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return user
+def find_duplicate_face(
+    db: Session,
+    vector: np.ndarray,
+    exclude_user_id: int,
+    client_id: int | None,
+) -> tuple[User, float] | None:
+    """Devuelve la cuenta de la MISMA persona en el mismo sistema cliente, si existe.
+
+    Solo se compara cuando `client_id` esta definido (peticion de un integrador):
+    distintos sistemas pueden compartir rostro; dentro de un mismo sistema la misma
+    cara no debe matricularse en dos cuentas. El portal (sin API key) no filtra.
+    """
+    if client_id is None:
+        return None
+    query = (
+        select(User, FaceTemplate.features)
+        .join(FaceTemplate, FaceTemplate.user_id == User.id)
+        .where(
+            FaceTemplate.algorithm == ALGORITHM,
+            FaceTemplate.user_id != exclude_user_id,
+            User.api_client_id == client_id,
+        )
+    )
+    mejor: tuple[User, float] | None = None
+    for user, blob in db.execute(query).all():
+        ref = np.frombuffer(blob, dtype=np.float32)
+        if ref.shape != vector.shape:
+            continue
+        score = embedder.similarity(vector, ref)
+        if mejor is None or score > mejor[1]:
+            mejor = (user, score)
+    if mejor is None or mejor[1] < settings.face_duplicate_threshold:
+        return None
+    return mejor
+
+
+def _get_user(
+    db: Session, username: str, request: Request | None = None, user_uuid: str | None = None
+) -> User:
+    return resolve_user(db, request, username, user_uuid)
 
 
 def _templates_or_404(user: User) -> list[FaceTemplate]:
@@ -99,12 +146,24 @@ def register(
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    existing_query = scope_user_query(select(User).where(User.username == username), request, User)
+    existing_query = scope_new_username(select(User).where(User.username == username), request, User)
     existing = db.execute(existing_query).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
     features = _embedding_from_bytes(image.file.read())
+
+    cliente = api_client_id(request)
+    duplicado = find_duplicate_face(db, features, exclude_user_id=0, client_id=cliente)
+    if duplicado is not None and settings.face_reject_duplicates:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Esa cara ya esta matriculada en otra cuenta del mismo sistema "
+                f"(similitud {duplicado[1]:.3f}). Una sola foto abre las dos cuentas; "
+                "revisa la matricula de esa otra cuenta."
+            ),
+        )
 
     if password:
         from passlib.context import CryptContext
@@ -127,11 +186,18 @@ def register(
         raise HTTPException(status_code=409, detail="El usuario ya existe")
 
     db.refresh(user)
+    mensaje = "Cara registrada correctamente"
+    if duplicado is not None and not settings.face_reject_duplicates:
+        mensaje += (
+            f" PERO se parece a la de otra cuenta del mismo sistema "
+            f"(similitud {duplicado[1]:.3f})."
+        )
     return FaceRegisterResponse(
         username=username,
         uuid=str(user.uuid),
         algorithm=ALGORITHM,
-        message="Cara registrada correctamente",
+        message=mensaje,
+        duplicate_similarity=None if duplicado is None else round(duplicado[1], 4),
     )
 
 
@@ -139,10 +205,11 @@ def register(
 def verify(
     request: Request,
     username: str = Form(...),
+    user_uuid: str | None = Form(default=None),
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    user = _get_user(db, username, request)
+    user = _get_user(db, username, request, user_uuid)
     templates = _templates_or_404(user)
     features = _embedding_from_bytes(image.file.read())
     best = _best_similarity(features, templates)
@@ -161,11 +228,12 @@ def verify(
 def login(
     request: Request,
     username: str = Form(...),
+    user_uuid: str | None = Form(default=None),
     frames: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ):
     check_biometric_rate(request, "face", username)
-    user = _get_user(db, username, request)
+    user = _get_user(db, username, request, user_uuid)
     templates = _templates_or_404(user)
     if not frames:
         raise HTTPException(status_code=400, detail="Se requiere al menos un frame")
@@ -279,12 +347,28 @@ def login(
         else:
             reason = "El rostro no coincide con las plantillas registradas."
 
+    logger.info(
+        "face_login user=%s uuid=%s core=%.4f best=%.4f threshold=%.3f blink=%s "
+        "borderline=%s usable=%d/%d verified=%s",
+        username,
+        user.uuid,
+        core,
+        best,
+        threshold,
+        blink,
+        borderline,
+        result["n_usable"],
+        result["n_frames"],
+        verified,
+    )
+
     return FaceLoginResponse(
         verified=verified,
         username=username if verified else None,
         uuid=str(user.uuid) if verified else None,
         liveness_passed=blink,
         similarity=round(best, 4),
+        core=round(core, 4),
         threshold=threshold,
         n_frames=result["n_frames"],
         n_faces=result["n_faces"],

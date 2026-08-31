@@ -54,7 +54,6 @@ Replaces any previous template. Each user has exactly one.
   "duration_seconds": 7.3,
   "n_frames": 682,
   "message": "Voz registrada correctamente",
-  "duplicate_of": null,
   "duplicate_similarity": null
 }
 ```
@@ -81,11 +80,13 @@ Before storing, the service compares the new voice against every other account.
 If any exceeds `VOICE_DUPLICATE_THRESHOLD`:
 
 - with `VOICE_REJECT_DUPLICATES=true` (default) it responds **409**
-- with `false` it stores the voice but fills in `duplicate_of` and `duplicate_similarity`
+- with `false` it stores the voice but fills in `duplicate_similarity`
+
+For privacy the response never reveals the other account's name: only the similarity.
 
 ```json
 {
-  "detail": "Esta voz ya esta matriculada como 'carlos' (similitud 0.916, umbral 0.35). Matricular la misma voz en dos cuentas hace que una sola grabacion abra las dos. ..."
+  "detail": "Esta voz ya esta matriculada en otra cuenta (similitud 0.916, umbral 0.35). Matricular la misma voz en dos cuentas hace que una sola grabacion abra las dos. ..."
 }
 ```
 
@@ -106,6 +107,7 @@ POST /api/voice/verify
 | Field | Description |
 | --- | --- |
 | `username` | Who to compare against |
+| `user_uuid` | Optional. User UUID, to disambiguate when the name exists in several systems (portal only) |
 | `audio` | WAV to verify |
 
 ```json
@@ -257,6 +259,7 @@ POST /api/voice/challenge
 | Field | Description |
 | --- | --- |
 | `username` | Who wants to sign in |
+| `user_uuid` | Optional. Same rule as `verify` |
 
 ```json
 {
@@ -288,6 +291,7 @@ POST /api/voice/challenge/verify
 | Field | Description |
 | --- | --- |
 | `username` | The same one from the challenge |
+| `user_uuid` | Optional. Same rule as `verify` |
 | `challenge_id` | The token received |
 | `audio` | WAV with the requested digits |
 

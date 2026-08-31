@@ -7,11 +7,13 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,12 +22,22 @@ from .database import Base
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("api_client_id", "username", name="uq_users_tenant_username"),
+        Index(
+            "uq_users_portal_username",
+            "username",
+            unique=True,
+            postgresql_where=text("api_client_id IS NULL"),
+            sqlite_where=text("api_client_id IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     uuid: Mapped[UUIDType] = mapped_column(
         Uuid, unique=True, index=True, default=uuid4, nullable=False
     )
-    username: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    username: Mapped[str] = mapped_column(String(100), index=True)
     api_client_id: Mapped[int | None] = mapped_column(
         ForeignKey("api_clients.id"), nullable=True, index=True
     )

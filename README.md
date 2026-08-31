@@ -1,5 +1,9 @@
 # Login Biométrico — Rostro y Voz
 
+[![Documentación](https://img.shields.io/badge/📖_documentación-MkDocs-2563eb?style=for-the-badge&labelColor=1e3a5f)](https://aiwavesystems.github.io/biometric-service-py/)
+[![Estado](https://img.shields.io/badge/estado-en_desarrollo-f59e0b?style=for-the-badge&labelColor=78350f)](docs/operacion/advertencias.md)
+[![Licencia](https://img.shields.io/badge/licencia-MIT-16a34a?style=for-the-badge&labelColor=14532d)](LICENSE)
+
 Microservicio de autenticación biométrica construido con FastAPI. Está pensado
 para usarse **desde otros sistemas**: cada sistema cliente se autentica con su
 propia API key y recibe el `uuid` del usuario como identificador estable para
@@ -20,11 +24,15 @@ localmente, sin llamadas externas.
 > ni tag en git; el código solo pasará a `main` cuando exista una versión estable
 > y funcional. El módulo de **voz es el más refinado** (matrícula guiada, desafío
 > de dígitos, detección de duplicados y umbrales medidos con datos reales). El
-> **rostro sigue en calibración**: su umbral de decisión aún produce fallas de
-> falsa aceptación/rechazo según la población, y está pendiente de medición con
-> una base real (`scripts/calibrate_face_db.py`). Como todo sistema biométrico,
-> tiene fallas inherentes: lee las
+> **rostro sigue en calibración**: sus primeras mediciones reales
+> (`scripts/calibrate_face_db.py`) destaparon cuentas duplicadas en la base de
+> desarrollo y confirmaron que hace falta más población antes de fijar el umbral
+> definitivo. Como todo sistema biométrico, tiene fallas inherentes: lee las
 > [Advertencias de desarrollo](docs/operacion/advertencias.md) antes de usarlo.
+
+> La documentación completa se genera con MkDocs desde la carpeta
+> [`docs/`](docs/index.md) y está publicada en
+> [aiwavesystems.github.io/biometric-service-py](https://aiwavesystems.github.io/biometric-service-py/).
 
 ---
 
@@ -148,10 +156,7 @@ cp .env.example .env          # y rellena los valores obligatorios
 
 python scripts/fetch_models.py    # YuNet, SFace, landmarks y CAM++ (~81 MB)
 python scripts/create_db.py       # crea la base en PostgreSQL
-python scripts/migrate_v05.py     # uuid de usuario, operadores y API keys
-python scripts/migrate_voice.py   # columnas de calibración de voz
-python scripts/migrate_digits.py  # tabla del desafío de dígitos (aditivo)
-python scripts/migrate_user_ownership.py  # columna users.api_client_id (aditivo)
+alembic upgrade head              # crea el esquema completo con migraciones
 
 python -m uvicorn backend.main:app --reload # si falla es debido a que uvicorn no esta instalado aun
 ```
@@ -161,6 +166,29 @@ están versionados en git (pesan 52 MB) y el servicio se niega a arrancar si
 faltan, con un mensaje que remite a ese script. Se guardan en
 `backend/biometrics/face/models/`, dentro del proyecto. Es idempotente: si los
 ficheros ya están y su tamaño coincide, no vuelve a descargarlos.
+
+### Migraciones
+
+El esquema lo gestiona [Alembic](https://alembic.sqlalchemy.org): cada cambio de
+estructura entra como una revisión en `migrations/versions/`, y el arranque del
+servicio ya no crea tablas por su cuenta (`create_all` se retiró). El flujo:
+
+```bash
+alembic upgrade head      # aplica las revisiones pendientes
+alembic revision --autogenerate -m "descripcion"   # genera una revisión nueva
+```
+
+Alembic lee la conexión de `DATABASE_URL` del `.env`; para apuntar a otra base
+sin tocar el archivo, usa la variable `ALEMBIC_DATABASE_URL`.
+
+**Instalaciones creadas antes de Alembico** (esquema creado por `create_all` o
+por los antiguos `scripts/migrate_*.py`) no tienen tabla `alembic_version`.
+Para adoptar el sistema sin perder datos:
+
+```bash
+python scripts/migrate_username_per_tenant.py   # único cambio de esquema pendiente
+alembic stamp head                              # registra la revisión actual
+```
 
 El portal queda en `http://127.0.0.1:8000`. Las rutas `/docs`, `/redoc` y
 `/openapi.json` piden Basic Auth con las credenciales de `.env`.
@@ -1375,7 +1403,27 @@ Los scripts que las produjeron (`bench_face.py`, `bench_metrics.py`,
 sola persona y los de voz con locutores sintéticos. Antes de usar el servicio con
 un grupo real de personas hay que recalibrar.
 
+**Población mínima.** Con menos de ~15 personas distintas matriculadas, los
+cuantiles de impostor del rostro son ruido: las cifras sirven para detectar
+cuentas duplicadas, no para fijar `FACE_THRESHOLD`. La voz necesita al menos 3
+personas reales. Vuelve a medir cada vez que la base crezca: los números se
+estabilizan con la población, no con el tiempo.
+
 ### Rostro
+
+La vía principal usa las plantillas ya guardadas en la base, sin capturar nada:
+
+```bash
+python scripts/calibrate_face_db.py                        # distribuciones, EER, umbral por FAR objetivo
+python scripts/calibrate_face_db.py --excluir-sospechosos  # recalcula sin pares sospechosos de cuentas gemelas
+```
+
+El script lista además los pares impostores más altos entre usuarios distintos:
+casi siempre es la misma persona matriculada dos veces, y esa contaminación
+invalida el resto de cifras hasta corregirla (ver
+[Limitaciones conocidas](#limitaciones-conocidas)).
+
+Para condiciones controladas (luz baja, distancia, otra cámara) usa carpetas:
 
 ```bash
 python scripts/calibrate_face.py datos_cara          # usa FACE_THRESHOLD del .env
@@ -1459,10 +1507,11 @@ no generaliza.
 |---|---|
 | `fetch_models.py` | Descarga YuNet, SFace, landmarks y CAM++ al proyecto (~81 MB). Obligatorio antes del primer arranque. |
 | `create_db.py` | Crea la base de datos en PostgreSQL si no existe. |
-| `migrate_v05.py` | Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
-| `migrate_voice.py` | Añade las columnas de calibración y limpia plantillas de voz obsoletas. |
-| `migrate_digits.py` | Crea `voice_digit_templates`. **Puramente aditivo:** no toca ningún dato existente. |
-| `migrate_user_ownership.py` | Añade `users.api_client_id` con su clave ajena e índice. **Aditivo:** los usuarios quedan sin dueño (`NULL`). |
+| `migrate_username_per_tenant.py` | Cambia la unicidad de `username` de global a por sistema cliente. Para instalaciones previas a Alembic, ejecutar antes de `alembic stamp head`. Idempotente, con `--dry-run`. |
+| `migrate_v05.py` | **Histórico (pre-Alembic).** Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
+| `migrate_voice.py` | **Histórico (pre-Alembic).** Añade las columnas de calibración y limpia plantillas de voz obsoletas. |
+| `migrate_digits.py` | **Histórico (pre-Alembic).** Crea `voice_digit_templates`. **Puramente aditivo:** no toca ningún dato existente. |
+| `migrate_user_ownership.py` | **Histórico (pre-Alembic).** Añade `users.api_client_id` con su clave ajena e índice. **Aditivo:** los usuarios quedan sin dueño (`NULL`). |
 | `synth.py` | Genera locutores sintéticos para probar sin micrófono. **No mezcles su salida con usuarios reales.** |
 | `record_blink.py` | Graba una ráfaga real de parpadeo con tu webcam, con aviso de cuándo parpadear. |
 | `record_digits.py` | Graba la matrícula de dígitos guiándote, y valida el troceo antes de subirla. |
@@ -1481,7 +1530,7 @@ no generaliza.
 | `test_voice_duplicates.py` | Valida el guardia de voces duplicadas contra un servidor. Crea y borra **solo** sus usuarios. |
 | `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
 | `calibrate_face.py` | Calcula FAR/FRR/EER faciales con datos reales. |
-| `calibrate_face_db.py` | Igual, pero desde las plantillas ya en la base, sin capturar nada. Marca cuentas duplicadas. Solo lee. |
+| `calibrate_face_db.py` | Igual, pero desde las plantillas ya en la base, sin capturar nada. Marca cuentas duplicadas, las excluye con `--excluir-sospechosos` y da intervalos de confianza. Solo lee. |
 | `calibrate_voice.py` | Calcula FAR/FRR/EER de voz con datos reales. |
 | `diagnose_face.py` | Detección, calidad y matriz de similitud foto a foto. |
 | `diagnose_liveness.py` | Vuelca la señal de apertura ocular frame a frame. |

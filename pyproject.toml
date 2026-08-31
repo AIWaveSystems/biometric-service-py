@@ -10,6 +10,7 @@ ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
 "scripts/*" = ["E402", "E701", "E702", "E741"]
 "backend/*" = ["E402"]
+"migrations/env.py" = ["F401"]
 
 [tool.ruff.format]
 quote-style = "double"

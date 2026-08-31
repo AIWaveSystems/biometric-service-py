@@ -117,6 +117,13 @@ h2 { margin-bottom: 16px; font-size: 18px; }
 }
 .field input:focus, .field select:focus { outline: 1px solid var(--accent); }
 
+.pass-row { display: flex; gap: 8px; align-items: stretch; }
+.pass-row input { flex: 1 1 auto; min-width: 0; }
+.pass-row .btn { white-space: nowrap; }
+.result .field { margin-top: 10px; }
+.chooser-actions { display: flex; gap: 8px; }
+.result .btn { margin-top: 8px; }
+
 .sensor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
 @media (max-width: 640px) { .sensor-grid { grid-template-columns: 1fr; } }
 
@@ -140,6 +147,21 @@ h2 { margin-bottom: 16px; font-size: 18px; }
 .state.ok { color: var(--ok); }
 .state.err { color: var(--err); }
 .state.busy { color: var(--accent); }
+
+.spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: spinner-rotate 0.7s linear infinite;
+}
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
 
 /* ---------- botones con iconos ---------- */
 .btn {
@@ -481,9 +503,22 @@ tr.editor-fila > td { padding: 0; background: rgba(15, 23, 42, 0.45); }
 .editor-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 
 .editor-row input[type="text"],
+.editor-row input[type="password"],
+.editor-row input[type="file"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: 14px;
+}
+
+.editor-row input[type="text"],
 .editor-row input[type="password"] { flex: 1 1 200px; min-width: 160px; }
 
 .editor-row input[type="file"] { flex: 1 1 240px; font-size: 13px; color: var(--muted); }
+
+.editor-row input:focus { outline: 1px solid var(--accent); }
 
 .editor-cam { margin-top: 10px; max-width: 320px; }
 .editor-cam video { width: 100%; border-radius: 10px; display: block; }

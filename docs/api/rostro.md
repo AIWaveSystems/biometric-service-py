@@ -37,6 +37,10 @@ POST /api/face/register
 | `password` | texto | no | 6 a 128 caracteres |
 | `image` | archivo | si | Una foto |
 
+!!! note "Formatos aceptados"
+    Solo **JPG** y **PNG** (tambien en `/verify`, `/login` y al anadir fotos a un usuario).
+    HEIC/HEIF de iPhone o AVIF no se pueden decodificar: convierte la foto antes.
+
 Crea el usuario **y** su primera plantilla. Si el usuario ya existe devuelve 409: para
 anadir caras a alguien existente usa
 [`POST /api/users/{username}/faces`](usuarios.md#anadir-fotos-a-un-usuario-existente).
@@ -47,6 +51,25 @@ anadir caras a alguien existente usa
   "uuid": "8c1e4f2a-...",
   "algorithm": "sface",
   "message": "Cara registrada correctamente"
+}
+```
+
+### Duplicados dentro del mismo sistema
+
+Cuando la matricula llega de un **cliente API** (con su API key), el servicio compara
+la cara nueva contra las demas cuentas de **ese mismo sistema**. Si alguna supera
+`FACE_DUPLICATE_THRESHOLD`:
+
+- con `FACE_REJECT_DUPLICATES=true` (por defecto) responde **409** y no crea/cambia nada;
+- con `false` la guarda y rellena `duplicate_similarity` (y en `users` el contador `duplicates`).
+
+Entre sistemas distintos el mismo rostro **esta permitido**: cada web cliente tiene a
+la misma persona con su propia cuenta. La guardia solo aplica al mismo `api_client_id`.
+Desde el **portal** (dashboard) no se filtra por duplicados.
+
+```json
+{
+  "detail": "Esa cara ya esta matriculada en otra cuenta del mismo sistema (similitud 0.93). Una sola foto abre las dos cuentas; revisa la matricula de esa otra cuenta."
 }
 ```
 
@@ -63,6 +86,7 @@ POST /api/face/verify
 | Campo | Descripcion |
 | --- | --- |
 | `username` | A quien se compara |
+| `user_uuid` | Opcional. UUID del usuario, para desambiguar cuando el nombre existe en varios sistemas (solo portal) |
 | `image` | Una sola foto |
 
 ```json
@@ -93,6 +117,7 @@ POST /api/face/login
 | Campo | Tipo | Descripcion |
 | --- | --- | --- |
 | `username` | texto | A quien se compara |
+| `user_uuid` | texto | Opcional. Mismo criterio que en `verify` |
 | `frames` | archivo[] | Rafaga de imagenes, campo repetido |
 
 Se necesitan al menos `LIVENESS_MIN_FACES` frames (6 por defecto). El portal captura unos

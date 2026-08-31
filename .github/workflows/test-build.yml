@@ -158,6 +158,9 @@ jobs:
         if: steps.cache-modelos.outputs.cache-hit != 'true'
         run: python scripts/fetch_models.py
 
+      - name: Aplicar migraciones
+        run: alembic upgrade head
+
       - name: Arrancar el servicio
         run: |
           nohup uvicorn backend.main:app --host 127.0.0.1 --port 8000 --log-level warning \

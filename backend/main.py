@@ -1,4 +1,5 @@
 import base64
+import logging
 from binascii import Error as B64Error
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,13 +16,18 @@ from .api_clients import resolve_api_key
 from .biometrics.face import embedder
 from .biometrics.face import landmarks as face_landmarks
 from .config import settings
-from .database import Base, SessionLocal, engine, get_db
+from .database import SessionLocal, get_db
 from .routers import auth, clients, face, portal, users, voice
 from .routers.portal import ensure_bootstrap_user
 from .security import SCOPE_PORTAL, constant_time_equals, decode_token
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
 
 DOCS_PATHS = {"/docs", "/redoc", "/openapi.json"}
 OPEN_API_PATHS = {"/api/portal/auth"}
@@ -74,7 +80,6 @@ async def lifespan(app: FastAPI):
             "Faltan los modelos ONNX de reconocimiento facial. "
             "Ejecuta: python scripts/fetch_models.py"
         )
-    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         ensure_bootstrap_user(db)
@@ -150,8 +155,32 @@ class PortalApiAuth(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self'; "
+        "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
+        "font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    ),
+}
+
+
+class SecurityHeaders(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        skip_csp = request.url.path in DOCS_PATHS
+        for name, value in SECURITY_HEADERS.items():
+            if skip_csp and name == "Content-Security-Policy":
+                continue
+            response.headers.setdefault(name, value)
+        return response
+
+
 app.add_middleware(PortalApiAuth)
 app.add_middleware(DocsBasicAuth)
+app.add_middleware(SecurityHeaders)
 
 _origins = settings.cors_origin_list
 if _origins:

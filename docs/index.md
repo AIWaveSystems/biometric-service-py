@@ -107,7 +107,9 @@ El servicio maneja dos JWT distintos y no son intercambiables:
 
 - :material-connection: **[Integracion](integracion/backend.md)**
 
-    Ejemplos desde backend, frontend y validacion de sesion.
+    Ejemplos desde backend, frontend y validacion de sesion. En
+    [biometric-integration-test](https://github.com/AIWaveSystems/biometric-integration-test)
+    hay ademas un ejemplo completo en Express/Node, generado con IA: tomalo solo como referencia.
 
 </div>
 

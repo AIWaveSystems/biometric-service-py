@@ -16,6 +16,7 @@ class FaceRegisterResponse(BaseModel):
     uuid: str
     algorithm: str
     message: str
+    duplicate_similarity: float | None = None
 
 
 class FaceVerifyResponse(BaseModel):
@@ -32,6 +33,7 @@ class FaceLoginResponse(BaseModel):
     uuid: str | None = None
     liveness_passed: bool
     similarity: float
+    core: float
     threshold: float
     n_frames: int
     n_faces: int
@@ -66,7 +68,6 @@ class VoiceRegisterResponse(BaseModel):
     duration_seconds: float
     n_frames: int
     message: str
-    duplicate_of: str | None = None
     duplicate_similarity: float | None = None
 
 

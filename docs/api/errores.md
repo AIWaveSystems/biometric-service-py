@@ -32,6 +32,8 @@ cual, sin traducir ni reescribir.
 | Mensaje | Causa | Solucion para el usuario |
 | --- | --- | --- |
 | *No se detecto ninguna cara en la imagen* | YuNet no encontro rostro | Mas luz, cara centrada |
+| *No se pudo leer la imagen (formato no soportado...)* | El archivo no es JPG ni PNG (HEIC de iPhone, AVIF, WEBP...) | Si, convertir a JPG o PNG |
+| *El usuario ya alcanzo el maximo de N plantillas faciales...* | Tope `FACE_MAX_TEMPLATES_PER_USER` | Si, borrar alguna o re-matriplicar |
 | *No se detecto la cara en suficientes frames...* | Rafaga con demasiados huecos | Mirar de frente, no girar |
 | *Ningun frame tiene calidad suficiente para verificar* | Todos borrosos o cara muy pequena | Acercarse, sujetar la camara |
 | *Se requiere al menos un frame* | Lista `frames` vacia | Error del cliente |
@@ -76,6 +78,12 @@ corto para calcular el embedding, o esta por debajo del suelo de silencio de **-
 | *La contrasena actual no es correcta* | Cambio de contrasena del portal |
 | *Autenticacion requerida* | Basic Auth de `/docs` |
 
+El login de usuario final (`POST /api/auth/login`) siempre responde **401 `Credenciales
+invalidas`** cuando el usuario no existe, no tiene contrasena o la contrasena es incorrecta.
+No devuelve `404 Usuario no encontrado` en ese caso: ese 404 es solo de rutas de consulta
+(identify, get de usuario, etc.). El mensaje y el tiempo de respuesta son identicos en los
+tres casos para no revelar si la cuenta existe.
+
 !!! warning "Un token de sesion da 401 en `/api/*`"
     Es la confusion mas comun al integrar. El JWT que devuelve un login tiene
     `scope: "user"` y el middleware solo acepta `scope: "portal"`. Los sistemas cliente
@@ -119,10 +127,12 @@ existe, le falta la matricula.
 | Mensaje | Causa | Se puede reintentar? |
 | --- | --- | --- |
 | *El usuario ya existe* | Nombre ocupado | No, elegir otro |
+| *Ese nombre de usuario existe en varios sistemas cliente...* | Mismo nombre en varias webs, peticion desde el portal | Si, enviando `user_uuid` |
 | *Ya existe un usuario con ese nombre* | Renombrado a uno ocupado | No |
 | *Ya existe un cliente con ese nombre* | Nombre de cliente ocupado | No |
 | *Ya existe un usuario de portal con ese nombre* | Operador duplicado | No |
-| *Esta voz ya esta matriculada como 'X'...* | Voz duplicada | No, revisar la otra cuenta |
+| *Esta voz ya esta matriculada en otra cuenta...* | Voz duplicada | No, revisar la otra cuenta |
+| *Esa cara ya esta matriculada en otra cuenta del mismo sistema...* | La misma persona ya existe en otra cuenta de ESA web (`FACE_REJECT_DUPLICATES=true`) | No, revisar la otra cuenta |
 | *Captura repetida detectada...* | Misma rafaga reenviada | Si, **volver a capturar** |
 | *Grabacion repetida detectada...* | Mismo audio reenviado | Si, volver a grabar |
 | *Desafio invalido, caducado o ya usado* | Desafio consumido o vencido | Si, **pedir uno nuevo** |

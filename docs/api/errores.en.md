@@ -32,6 +32,8 @@ are, without translating or rewriting.
 | Message | Cause | Fix for the user |
 | --- | --- | --- |
 | *No se detecto ninguna cara en la imagen* | YuNet found no face | More light, centre the face |
+| *No se pudo leer la imagen (formato no soportado...)* | The file is not JPG nor PNG (iPhone HEIC, AVIF, WEBP...) | Yes, convert to JPG or PNG |
+| *El usuario ya alcanzo el maximo de N plantillas faciales...* | `FACE_MAX_TEMPLATES_PER_USER` reached | Yes, delete some or re-enroll |
 | *No se detecto la cara en suficientes frames...* | Burst with too many gaps | Look straight ahead, do not turn |
 | *Ningun frame tiene calidad suficiente para verificar* | All blurry or the face too small | Move closer, hold the camera steady |
 | *Se requiere al menos un frame* | Empty `frames` list | Client bug |
@@ -76,6 +78,12 @@ embedding, or falls below the **-55 dBFS** silence floor.
 | *La contrasena actual no es correcta* | Portal password change |
 | *Autenticacion requerida* | Basic Auth on `/docs` |
 
+The end-user login (`POST /api/auth/login`) always answers **401 `Credenciales invalidas`**
+when the user does not exist, has no password, or the password is wrong. It does not return
+`404 Usuario no encontrado` in that case: that 404 is only for lookup routes (identify, get
+user, etc.). The message and the response time are identical across all three cases so that
+nothing leaks about whether the account exists.
+
 !!! warning "A session token gives 401 on `/api/*`"
     This is the most common integration mistake. The JWT returned by a login carries
     `scope: "user"` and the middleware only accepts `scope: "portal"`. Client systems use
@@ -119,10 +127,12 @@ the enrolment is missing.
 | Message | Cause | Retryable? |
 | --- | --- | --- |
 | *El usuario ya existe* | Name taken | No, choose another |
+| *Ese nombre de usuario existe en varios sistemas cliente...* | Same name in several webs, request from the portal | Yes, sending `user_uuid` |
 | *Ya existe un usuario con ese nombre* | Renamed to a taken one | No |
 | *Ya existe un cliente con ese nombre* | Client name taken | No |
 | *Ya existe un usuario de portal con ese nombre* | Duplicate operator | No |
-| *Esta voz ya esta matriculada como 'X'...* | Duplicate voice | No, review the other account |
+| *Esta voz ya esta matriculada en otra cuenta...* | Duplicate voice | No, review the other account |
+| *Esa cara ya esta matriculada en otra cuenta del mismo sistema...* | The same person already exists on another account of THAT web (`FACE_REJECT_DUPLICATES=true`) | No, review the other account |
 | *Captura repetida detectada...* | Same burst resent | Yes, **capture again** |
 | *Grabacion repetida detectada...* | Same audio resent | Yes, record again |
 | *Desafio invalido, caducado o ya usado* | Challenge consumed or expired | Yes, **request a new one** |

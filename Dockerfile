@@ -21,6 +21,8 @@ RUN python scripts/fetch_models.py
 
 COPY backend/ ./backend/
 COPY static/ ./static/
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
 
 RUN python -c "from backend.biometrics.face import embedder, landmarks; from backend.biometrics.voice import embedder as speaker; assert embedder.available(), 'falta yunet o sface'; assert landmarks.available(), 'falta el modelo de landmarks'; assert speaker.available(), 'falta el modelo de locutor'; print('modelos ONNX verificados dentro de la imagen')"
 
@@ -37,4 +39,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${UVICORN_PORT}/health" > /dev/null || exit 1
 
-CMD ["sh", "-c", "exec uvicorn backend.main:app --host \"$UVICORN_HOST\" --port \"$UVICORN_PORT\" --workers \"$UVICORN_WORKERS\" --proxy-headers --forwarded-allow-ips='*'"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn backend.main:app --host \"$UVICORN_HOST\" --port \"$UVICORN_PORT\" --workers \"$UVICORN_WORKERS\" --proxy-headers --forwarded-allow-ips='*'"]

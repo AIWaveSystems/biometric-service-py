@@ -37,6 +37,10 @@ POST /api/face/register
 | `password` | text | no | 6 to 128 characters |
 | `image` | file | yes | One photo |
 
+!!! note "Accepted formats"
+    **JPG** and **PNG** only (same for `/verify`, `/login` and when adding photos to a
+    user). iPhone HEIC/HEIF or AVIF files cannot be decoded: convert the photo first.
+
 Creates the user **and** their first template. If the user already exists it returns 409:
 to add faces to an existing person use
 [`POST /api/users/{username}/faces`](usuarios.md#add-photos-to-an-existing-user).
@@ -47,6 +51,26 @@ to add faces to an existing person use
   "uuid": "8c1e4f2a-...",
   "algorithm": "sface",
   "message": "Cara registrada correctamente"
+}
+```
+
+### Duplicates within the same system
+
+When the enrollment comes from an **API client** (with its API key), the service compares
+the new face against the other accounts of **that same system**. If any exceeds
+`FACE_DUPLICATE_THRESHOLD`:
+
+- with `FACE_REJECT_DUPLICATES=true` (default) it responds **409** and stores nothing;
+- with `false` it stores the face and fills `duplicate_similarity` (and the `duplicates`
+  counter on `users`).
+
+The same face **is allowed across different systems**: each web client holds its own
+account for the same person. The guard only applies to the same `api_client_id`. From
+the **portal** (dashboard) there is no duplicate filtering.
+
+```json
+{
+  "detail": "Esa cara ya esta matriculada en otra cuenta del mismo sistema (similitud 0.93). Una sola foto abre las dos cuentas; revisa la matricula de esa otra cuenta."
 }
 ```
 
@@ -63,6 +87,7 @@ POST /api/face/verify
 | Field | Description |
 | --- | --- |
 | `username` | Who to compare against |
+| `user_uuid` | Optional. User UUID, to disambiguate when the name exists in several systems (portal only) |
 | `image` | A single photo |
 
 ```json
@@ -93,6 +118,7 @@ POST /api/face/login
 | Field | Type | Description |
 | --- | --- | --- |
 | `username` | text | Who to compare against |
+| `user_uuid` | text | Optional. Same rule as `verify` |
 | `frames` | file[] | Burst of images, repeated field |
 
 At least `LIVENESS_MIN_FACES` frames are required (6 by default). The portal captures

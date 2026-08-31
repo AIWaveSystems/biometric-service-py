@@ -25,6 +25,12 @@ reenvia con la API key, y traduce la respuesta a tu propio modelo de sesion.
     podria matricular su propia cara en la cuenta de otro. Ver
     [Desde un frontend](frontend.md).
 
+!!! info "Proyecto de ejemplo de integracion"
+    En [AIWaveSystems/biometric-integration-test](https://github.com/AIWaveSystems/biometric-integration-test)
+    hay un servidor Express/Node que muestra **una** manera de hacer esta integracion
+    de extremo a extremo. No es la unica ni codigo de produccion: fue generado con IA.
+    Tomalo solo como referencia para comparar con tu propia implementacion.
+
 ---
 
 ## Python

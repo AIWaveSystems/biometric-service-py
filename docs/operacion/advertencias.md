@@ -34,21 +34,75 @@ duplicados. Verifica siempre que las respuestas reportan
 `scoring: "ubm-map"` o `"embedding"`; con `gmm-z` el sistema **no está
 verificando nada fiable**.
 
+## Cuántos usuarios distintos hacen falta antes de fijar configuración
+
+Ninguna cifra de FAR/FRR significa nada por debajo de una población mínima de
+**personas distintas** matriculadas en condiciones reales de captura. Con pocos
+usuarios los cuantiles de impostor son ruido estadístico: un umbral «sugerido»
+por debajo de ese mínimo sirve solo para detectar problemas groseros (cuentas
+duplicadas), nunca para fijar la configuración de un sistema.
+
+| Módulo | Mínimo para pruebas | Base recomendada para producción | Medición |
+| --- | --- | --- | --- |
+| Voz | 3 personas reales distintas | 10 o más, con micrófonos y ambiente de producción | `diagnose_voice_db.py`, `calibrate_voice.py` |
+| Rostro | 10 personas distintas | 15-30; repetir la medición cada vez que crezca la base | `calibrate_face_db.py` |
+| Desafío de dígitos | 1 persona valida su propia matrícula | Igual: es por usuario, no poblacional | `test_digits.py`, `test_challenge_api.py` |
+| Parpadeo (liveness) | No depende de la población | Igual | `test_liveness.py` |
+
+Mientras un módulo esté por debajo del mínimo:
+
+- Trata su verificación como ayuda al segundo intento, nunca como factor único.
+- Usa la banda `borderline` del login facial para pedir repetición en lugar de
+  subir el umbral global (subirlo castiga a los genuinos con la muestra corta).
+- Mide de nuevo al incorporar usuarios: los números se estabilizan con la
+  población, no con el tiempo.
+
 ## El login facial también exige validación y ajuste propio
 
 Igual que la voz, el rostro se calibró con una muestra mínima: 14 fotos reales de
-una persona y 3 impostores visualmente muy distintos. Cada sistema debe:
+una persona y 3 impostores visualmente muy distintos. Cada sistema debe
+recalibrar contra su propia población, ahora con dos vías complementarias:
 
-1. Recolectar capturas reales de sus usuarios con `datos_cara/` estructurado por
+1. Matricula usuarios reales por la vía normal (API o portal) y mide directamente
+   sobre las plantillas guardadas: `python scripts/calibrate_face_db.py`. Si
+   aparecen pares impostores altos, son cuentas duplicadas: exclúyelos con
+   `--excluir-sospechosos`, corrige las cuentas y vuelve a medir.
+2. Para condiciones controladas (luz baja, contraluz, cámaras distintas,
+   distancia) usa `python scripts/calibrate_face.py datos_cara` con carpetas por
    persona.
-2. Ejecutar `python scripts/calibrate_face.py datos_cara` y elegir umbral con
-   esa curva FAR/FRR, no con el valor de fábrica (`0.363`).
-3. Probar en las condiciones reales de captura: luz baja, contraluz, cámaras
-   distintas y distancia al rostro.
+3. Elige umbral con esas curvas FAR/FRR y los cuantiles por FAR objetivo, no con
+   el valor de fábrica (`0.363`), y respeta la población mínima definida arriba.
 
 Ten presente que el liveness **solo detecta fotografía estática**: ni vídeos en
 pantalla, ni máscaras, ni deepfakes. Si tu sistema necesita resistencia a esos
 ataques, hay que añadir mecanismos adicionales por código.
+
+## Una persona, una cuenta
+
+Matricular a la misma persona en dos cuentas rompe la seguridad sin que ningún
+componente falle: la cara coincide porque es la misma, pero abre la cuenta
+equivocada. Medido en la base de desarrollo: dos cuentas gemelas puntuaban hasta
+**0.79** entre sí, muy por encima del umbral 0.363, mientras los impostores
+legítimos rara vez superan 0.40. Es la causa clásica del «a veces se entra con la
+cara de otro».
+
+- La voz tiene guardia automático que rechaza matrículas duplicadas
+  (`VOICE_REJECT_DUPLICATES`). El rostro también la tiene ahora
+  (`FACE_REJECT_DUPLICATES`): cuando la matrícula llega de un cliente API, una cara ya
+  registrada en otra cuenta del **mismo sistema** se rechaza (409). La guardia no aplica
+  entre sistemas distintos (cada web puede tener a la misma persona) ni desde el portal.
+- Detección: `POST /api/voice/identify` con `ambiguous: true` delata voces
+  compartidas; `scripts/calibrate_face_db.py` lista los pares de plantillas
+  faciales con similitud sospechosa entre usuarios distintos.
+- Corrección: borrar o volver a matricular la cuenta duplicada con otra persona,
+  y repetir la medición.
+
+!!! note "El alcance es por sistema cliente"
+    «Una cuenta» significa una cuenta **dentro de cada web conectada**. Cada cliente
+    API tiene su propio espacio de nombres: la misma persona puede (y suele) tener
+    una cuenta en cada web que la usa, con su propio `username` — incluso el mismo
+    nombre en varias webs. Lo que no debe existir son dos cuentas de la misma
+    persona **dentro del mismo sistema**.
 
 ## Un sistema biométrico falla de forma lógica e inevitable
 
