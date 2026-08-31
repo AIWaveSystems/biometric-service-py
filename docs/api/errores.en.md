@@ -78,6 +78,12 @@ embedding, or falls below the **-55 dBFS** silence floor.
 | *La contrasena actual no es correcta* | Portal password change |
 | *Autenticacion requerida* | Basic Auth on `/docs` |
 
+The end-user login (`POST /api/auth/login`) always answers **401 `Credenciales invalidas`**
+when the user does not exist, has no password, or the password is wrong. It does not return
+`404 Usuario no encontrado` in that case: that 404 is only for lookup routes (identify, get
+user, etc.). The message and the response time are identical across all three cases so that
+nothing leaks about whether the account exists.
+
 !!! warning "A session token gives 401 on `/api/*`"
     This is the most common integration mistake. The JWT returned by a login carries
     `scope: "user"` and the middleware only accepts `scope: "portal"`. Client systems use
