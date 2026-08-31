@@ -27,7 +27,13 @@ def login(body: PasswordLogin, request: Request, db: Session = Depends(get_db)):
     if not auth_limiter.allow(f"password:{client}:{body.username}"):
         raise HTTPException(status_code=429, detail="Demasiados intentos, espera un momento")
 
-    user = resolve_user(db, request, body.username, body.user_uuid)
+    try:
+        user = resolve_user(db, request, body.username, body.user_uuid)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            user = None
+        else:
+            raise
     stored = user.password_hash if user and user.password_hash else _DUMMY_HASH
     valid = pwd.verify(body.password, stored)
 
