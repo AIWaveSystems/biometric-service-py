@@ -66,8 +66,15 @@ download is caught immediately.
 python scripts/create_db.py
 ```
 
-Tables are created automatically on first startup via `Base.metadata.create_all`. This
-script only creates the database itself if it does not exist yet.
+This script only creates the database itself if it does not exist yet. The **tables** are
+applied with the Alembic migrations, not at service startup:
+
+```bash
+alembic upgrade head
+```
+
+In the official container this migration runs automatically before uvicorn starts. For a
+local or manual deploy against an already-created database, run the command above.
 
 If you are upgrading from an earlier version, run the migrations in order:
 
