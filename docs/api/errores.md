@@ -78,6 +78,12 @@ corto para calcular el embedding, o esta por debajo del suelo de silencio de **-
 | *La contrasena actual no es correcta* | Cambio de contrasena del portal |
 | *Autenticacion requerida* | Basic Auth de `/docs` |
 
+El login de usuario final (`POST /api/auth/login`) siempre responde **401 `Credenciales
+invalidas`** cuando el usuario no existe, no tiene contrasena o la contrasena es incorrecta.
+No devuelve `404 Usuario no encontrado` en ese caso: ese 404 es solo de rutas de consulta
+(identify, get de usuario, etc.). El mensaje y el tiempo de respuesta son identicos en los
+tres casos para no revelar si la cuenta existe.
+
 !!! warning "Un token de sesion da 401 en `/api/*`"
     Es la confusion mas comun al integrar. El JWT que devuelve un login tiene
     `scope: "user"` y el middleware solo acepta `scope: "portal"`. Los sistemas cliente
