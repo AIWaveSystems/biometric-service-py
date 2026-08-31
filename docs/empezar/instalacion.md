@@ -66,8 +66,15 @@ descarga truncada se detecta en el momento.
 python scripts/create_db.py
 ```
 
-Las tablas se crean solas en el primer arranque (`Base.metadata.create_all`). Este script
-solo se encarga de crear la base si aun no existe.
+Este script solo se encarga de crear la base de datos si aun no existe. Las **tablas** se
+aplican con las migraciones de Alembic, no al arrancar el servicio:
+
+```bash
+alembic upgrade head
+```
+
+En el contenedor oficial esta migracion se ejecuta automaticamente antes de arrancar
+uvicorn. En despliegue local o manual sobre una base ya creada, ejecuta el comando anterior.
 
 Si vienes de una version anterior, ejecuta las migraciones en orden:
 
