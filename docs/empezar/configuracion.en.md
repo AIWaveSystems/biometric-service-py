@@ -54,6 +54,11 @@ Useful range 0..1. Raising it increases security and false rejections.
 The duplicate guard only compares within the **same API client** (each system has its
 own accounts); the same face is allowed across different systems.
 
+Measured against 5 real, distinct people (`scripts/imagenes_test/famosos/`), the current
+**0.363 threshold does not cross anyone different** (0 false accepts out of 88, separation
++0.423 in real mode). Reproduce with `python scripts/calibrate_face.py scripts/imagenes_test/famosos 0.363`.
+See [Security](operacion/seguridad.en.md#measurement-with-real-impostors-face).
+
 ---
 
 ## Voice thresholds
