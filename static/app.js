@@ -1059,14 +1059,14 @@ async function loadVoiceSystemBanner() {
     } else if (s.scoring_active === "embedding") {
       el.className = "system-banner ok";
       el.textContent =
-        `Voz: modo embedding (CAM++), umbral ${s.embedding_threshold}. ` +
+        `Voz: modo embedding (ResNet34), umbral ${s.embedding_threshold}. ` +
         `${s.voice_users} usuario(s) con voz. No hace falta registrar más gente: el modelo ya trae ` +
         `su población de fondo. ${cola}`;
     } else if (s.users_without_embedding > 0) {
       el.className = "system-banner warn";
       el.textContent =
         `Voz: ${s.users_without_embedding} de ${s.voice_users} usuario(s) sin embedding. ` +
-        `Esos usan MFCC+GMM, más débil. Regraba su voz desde Editar → Voz para pasarlos a CAM++. ${cola}`;
+        `Esos usan MFCC+GMM, más débil. Regraba su voz desde Editar → Voz para pasarlos a ResNet34. ${cola}`;
     } else {
       el.className = "system-banner warn";
       el.textContent = `Voz: no hay usuarios con plantilla de voz todavía. ${cola}`;
