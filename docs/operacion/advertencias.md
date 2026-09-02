@@ -129,8 +129,8 @@ verdad absoluta, y diseña el flujo del sistema integrador con un segundo factor
 
 | Área | Estado |
 | --- | --- |
-| Versionado | Rama `develop`; sin releases estables; cambios rompientes esperados |
-| Calibración | Una persona real (facial), una persona real + sintéticos (voz) |
+| Versionado | Preparando **v1** para `main`; quebrantar la API aún posible pero no esperado |
+| Calibración | 5 personas reales distintas (facial, impostores), una persona real + sintéticos (voz) |
 | Auditoría de seguridad | Ninguna |
 | Consentimiento (Ley 1581 de 2012) | Sin tabla de registro; requisito legal pendiente |
 | Cifrado de plantillas | Sin implementar |
