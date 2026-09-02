@@ -39,9 +39,10 @@ oportunista habitual. No frena a alguien con un video de la victima.
     significa que se eligieron a partir de una curva de error sobre una poblacion
     representativa. Este servicio esta en lo primero.
 
-    La poblacion de prueba fue **una persona real** y varias voces sinteticas de TTS.
-    Separar TTS de habla humana es facil, asi que **toda cifra de tasa de falsa aceptacion
-    (FAR) medida contra esa poblacion esta inflada a favor**.
+    La poblacion de prueba de rostro son **5 personas reales distintas** (impostores de
+    caras publicas) y la poblacion de voz es **una persona real** y varias voces sinteticas
+    de TTS. Separar TTS de habla humana es facil, asi que **toda cifra de tasa de falsa
+    aceptacion (FAR) de voz medida contra esa poblacion esta inflada a favor**.
 
 ### Umbral facial
 
@@ -54,6 +55,35 @@ en esta instalacion.
 | Impostor, buena luz | 0.13 - 0.27 |
 | Impostor, poca luz con ruido | hasta **0.326** |
 | Margen restante con poca luz | **0.037** |
+
+### Medicion con impostores reales (rostro)
+
+Se midio el umbral facial contra **5 personas reales distintas** (caras publicas) usando
+las imagenes de `scripts/imagenes_test/famosos/` con los scripts que reproduce el resultado
+de `/api/face/verify`:
+
+```bash
+python scripts/calibrate_face.py scripts/imagenes_test/famosos 0.363
+python scripts/diagnose_face.py scripts/imagenes_test/famosos
+```
+
+| Medicion (modo real, 5 personas, 16 fotos) | Resultado |
+| --- | --- |
+| Genuino (misma persona), peor caso | 0.676 |
+| Impostor (persona distinta), mejor caso | 0.253 |
+| **Separacion** | **+0.423** |
+| Falsos rechazos a 0.363 | 0/8 |
+| Falsos positivos a 0.363 | **0/88** |
+
+Incluyendo todos los pares (no solo el modo real), el mejor impostor fue **0.314** y la
+separacion +0.326, con 0 falsos positivos y 0 falsos rechazos a 0.363.
+
+!!! note "Que significa y que no"
+    Con estas 5 personas el umbral **0.363 no cruza a nadie distinto**: hay separacion y
+    margen holgado. Sigue siendo una comprobacion, no una calibracion definitiva: para
+    elegir un valor con curva de error hacen falta 30+ personas y varias tomas por persona.
+    No se subio el umbral: el margen ya es amplio y subirlo aumenta los falsos rechazos
+    sin ganancia medible con estos datos.
 
 !!! warning "El margen se estrecha con la luz"
     Los impostores probados (`messi`, `lena`, `impostor_a`) son visualmente muy distintos
