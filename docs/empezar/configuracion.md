@@ -54,6 +54,11 @@ Rango util 0..1. Subirlo aumenta la seguridad y los falsos rechazos.
 La guardia de duplicados solo compara dentro del **mismo cliente API** (cada sistema
 tiene sus cuentas); entre sistemas distintos el mismo rostro esta permitido.
 
+Medido contra 5 personas reales distintas (`scripts/imagenes_test/famosos/`), el umbral
+actual **0.363 no cruza a nadie distinto** (0 falsos positivos de 88, separacion +0.423 en
+modo real). Reproducir con `python scripts/calibrate_face.py scripts/imagenes_test/famosos 0.363`.
+Detalle en [Seguridad](operacion/seguridad.md#medicion-con-impostores-reales-rostro).
+
 ---
 
 ## Umbrales de voz
