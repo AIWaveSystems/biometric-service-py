@@ -20,14 +20,14 @@ localmente, sin llamadas externas.
 > clasifica como dato sensible. Requieren autorización previa, explícita e
 > informada del titular. Ver [Limitaciones conocidas](#limitaciones-conocidas).
 
-> ⚠️ **Proyecto en desarrollo — pre-release 1.0.0 no oficial.** Aún no hay release
-> ni tag en git; el código solo pasará a `main` cuando exista una versión estable
-> y funcional. El módulo de **voz es el más refinado** (matrícula guiada, desafío
-> de dígitos, detección de duplicados y umbrales medidos con datos reales). El
-> **rostro sigue en calibración**: sus primeras mediciones reales
-> (`scripts/calibrate_face_db.py`) destaparon cuentas duplicadas en la base de
-> desarrollo y confirmaron que hace falta más población antes de fijar el umbral
-> definitivo. Como todo sistema biométrico, tiene fallas inherentes: lee las
+> ⚠️ **Preparación de la v1 para `main`.** Aún no hay release ni tag en git; el código
+> pasará a `main` cuando se cierre este ciclo de ajustes. El módulo de **voz** está
+> refinado (matrícula guiada, desafío de dígitos, detección de duplicados y umbrales
+> medidos con datos reales). El **rostro** se validó contra **5 personas reales
+> distintas** (impostores de caras públicas, ver `scripts/imagenes_test/famosos/`):
+> a `FACE_THRESHOLD 0.363` no cruza a nadie distinto (0 falsos positivos de 88,
+> separación +0.423 en modo real). Los umbrales siguen siendo **comprobados, no
+> calibrados** sobre una población representativa: lee
 > [Advertencias de desarrollo](docs/operacion/advertencias.md) antes de usarlo.
 
 > La documentación completa se genera con MkDocs desde la carpeta
@@ -1399,9 +1399,11 @@ Los scripts que las produjeron (`bench_face.py`, `bench_metrics.py`,
 
 ## Calibración de umbrales
 
-**Los umbrales por defecto son provisionales.** El facial está validado con una
-sola persona y los de voz con locutores sintéticos. Antes de usar el servicio con
-un grupo real de personas hay que recalibrar.
+**Los umbrales por defecto son provisionales.** El facial está validado con **5
+personas reales distintas** (impostores de caras públicas en
+`scripts/imagenes_test/famosos/`) y los de voz con un hablante real y locutores
+sintéticos. Antes de usar el servicio con un grupo real de personas hay que
+recalibrar.
 
 **Población mínima.** Con menos de ~15 personas distintas matriculadas, los
 cuantiles de impostor del rostro son ruido: las cifras sirven para detectar
@@ -1457,6 +1459,21 @@ que luego rechaza a la persona cualquier otro día.
 
 Basta una carpeta con una sola foto para que esa persona cuente como impostor;
 para medir genuinos hace falta al menos una carpeta con 2 o más.
+
+#### Medición con caras públicas (`scripts/imagenes_test/famosos/`)
+
+El repo incluye un dataset de **5 personas reales distintas** (caras públicas de
+uso público, 16 fotos) para medir falsos positivos del rostro sin capturar nada:
+
+```bash
+python scripts/calibrate_face.py scripts/imagenes_test/famosos 0.363
+python scripts/diagnose_face.py scripts/imagenes_test/famosos
+```
+
+Resultado en modo real (reproduce `/api/face/verify`): separación **+0.423**,
+peor genuino 0.676, mejor impostor 0.253, y a `FACE_THRESHOLD 0.363` → **0 falsos
+positivos de 88** y 0 falsos rechazos. Esto corrobora el umbral actual, aunque
+sigue siendo una comprobación sobre pocas personas, no una curva de error.
 
 ### Voz
 
