@@ -39,9 +39,10 @@ opportunistic attack. It does not stop someone with a video of the victim.
     they were chosen from an error curve over a representative population. This service is
     in the first category.
 
-    The test population was **one real person** and several synthetic TTS voices. Separating
-    TTS from human speech is easy, so **every false acceptance rate (FAR) figure measured
-    against that population is inflated in our favour**.
+    The face test population is **5 real, distinct people** (public faces, as impostors) and
+    the voice population is **one real person** and several synthetic TTS voices. Separating
+    TTS from human speech is easy, so **every face-acceptance-rate (FAR) figure of voice
+    measured against that population is inflated in our favour**.
 
 ### Face threshold
 
@@ -54,6 +55,35 @@ this installation.
 | Impostor, good light | 0.13 - 0.27 |
 | Impostor, low light with noise | up to **0.326** |
 | Remaining margin in low light | **0.037** |
+
+### Measurement with real impostors (face)
+
+The face threshold was measured against **5 real, distinct people** (public faces) using the
+images in `scripts/imagenes_test/famosos/` with the scripts that reproduce what
+`/api/face/verify` does:
+
+```bash
+python scripts/calibrate_face.py scripts/imagenes_test/famosos 0.363
+python scripts/diagnose_face.py scripts/imagenes_test/famosos
+```
+
+| Measurement (real mode, 5 people, 16 photos) | Result |
+| --- | --- |
+| Genuine (same person), worst case | 0.676 |
+| Impostor (different person), best case | 0.253 |
+| **Separation** | **+0.423** |
+| False rejects at 0.363 | 0/8 |
+| False accepts at 0.363 | **0/88** |
+
+Counting all pairs (not just real mode), the best impostor was **0.314** and separation
++0.326, with 0 false accepts and 0 false rejects at 0.363.
+
+!!! note "What this means and what it does not"
+    With these 5 people the **0.363 threshold does not cross anyone distinct**: there is
+    separation and comfortable margin. It is still a verification, not a final calibration:
+    choosing a value from an error curve needs 30+ people with several takes each. The
+    threshold was not raised: the margin is already wide and raising it adds false rejects
+    with no measurable gain on this data.
 
 !!! warning "The margin narrows with the light"
     The tested impostors (`messi`, `lena`, `impostor_a`) look very different from the
