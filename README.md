@@ -45,7 +45,7 @@ localmente, sin llamadas externas.
 5. [Cómo funciona la detección de vida](#cómo-funciona-la-detección-de-vida-liveness)
 6. [Protocolo de captura para el cliente](#protocolo-de-captura-para-el-cliente-cualquier-lenguaje)
 7. [Cómo funciona el reconocimiento de voz](#cómo-funciona-el-reconocimiento-de-voz)
-8. [Verificación de locutor con embeddings (CAM++)](#verificación-de-locutor-con-embeddings-cam)
+8. [Verificación de locutor con embeddings (ResNet34)](#verificación-de-locutor-con-embeddings-resnet34)
 9. [Suplantación por grabación: el desafío de dígitos](#suplantación-por-grabación-el-desafío-de-dígitos)
 10. [Modelo de seguridad](#modelo-de-seguridad)
 11. [API](#api)
@@ -154,7 +154,7 @@ pip install -r requirements.txt
 
 cp .env.example .env          # y rellena los valores obligatorios
 
-python scripts/fetch_models.py    # YuNet, SFace, landmarks y CAM++ (~81 MB)
+python scripts/fetch_models.py    # YuNet, SFace, landmarks y ResNet34 (~81 MB)
 python scripts/create_db.py       # crea la base en PostgreSQL
 alembic upgrade head              # crea el esquema completo con migraciones
 
@@ -236,8 +236,8 @@ hasheadas en `portal_users`. Ver [Modelo de seguridad](#modelo-de-seguridad).
 | `VOICE_LLR_THRESHOLD` | `1.2` | Log-verosimilitud mínima frente al UBM (vía principal). |
 | `VOICE_Z_THRESHOLD` | `-2.5` | z-score mínimo (solo en el modo de reserva). |
 | `VOICE_RATIO_THRESHOLD` | `-3.0` | Ventaja mínima sobre la cohorte (modo de reserva). |
-| `VOICE_EMBEDDING_THRESHOLD` | `0.40` | **Vía principal.** Coseno mínimo entre embeddings CAM++. |
-| `VOICE_DUPLICATE_THRESHOLD` | `0.40` | Coseno a partir del cual dos cuentas se consideran la misma voz. |
+| `VOICE_EMBEDDING_THRESHOLD` | `0.35` | **Vía principal.** Coseno mínimo entre embeddings ResNet34. |
+| `VOICE_DUPLICATE_THRESHOLD` | `0.35` | Coseno a partir del cual dos cuentas se consideran la misma voz. |
 | `VOICE_REJECT_DUPLICATES` | `true` | Rechazar con 409 la matrícula de una voz ya registrada. |
 | `VOICE_CHALLENGE_DIGITS` | `4` | Dígitos que sortea el servidor en cada desafío. |
 | `VOICE_CHALLENGE_TTL_SECONDS` | `60` | Vida de un desafío emitido. Es de un solo uso. |
@@ -712,7 +712,7 @@ disfraz: un fondo que no representa a «los demás».
 
 ---
 
-## Verificación de locutor con embeddings (CAM++)
+## Verificación de locutor con embeddings (ResNet34)
 
 La vía original —MFCC + GMM + UBM adaptado por MAP— tenía un techo medido de
 **~20 % de EER**, y tres problemas estructurales que no se arreglan calibrando:
@@ -723,15 +723,15 @@ La vía original —MFCC + GMM + UBM adaptado por MAP— tenía un techo medido 
 3. **Fallaba en silencio** cuando esa población era insuficiente o sintética.
 
 La solución es la misma que en el lado facial: un **modelo preentrenado**. Igual
-que SFace convierte una cara en un vector de 128 dimensiones, **CAM++** convierte
-una voz en uno de 512.
+que SFace convierte una cara en un vector de 128 dimensiones, **ResNet34**
+(WeSpeaker/VoxCeleb) convierte una voz en uno de 256.
 
 | | Rostro | Voz |
 |---|---|---|
-| Modelo | SFace | CAM++ (WeSpeaker) |
+| Modelo | SFace | ResNet34 (WeSpeaker) |
 | Entrenado con | rostros públicos | VoxCeleb (~7 000 hablantes) |
 | Entrada | recorte alineado 112×112 | fbank 80 bandas |
-| Salida | 128-d, norma 1 | 512-d, norma 1 |
+| Salida | 128-d, norma 1 | 256-d, norma 1 |
 | Comparación | coseno | coseno |
 | Licencia | Apache 2.0 | Apache 2.0 |
 | Tamaño | 38 MB | 29 MB |
@@ -747,7 +747,7 @@ Con 8 tomas del único hablante humano disponible:
 |---|---|---|
 | Mismo hablante | 0.726 – 0.965 | |
 | Audio ajeno | 0.010 – 0.254 | |
-| **Margen** | **+0.472** | 0 % FAR y 0 % FRR con umbral 0.40 |
+| **Margen** | **+0.472** | 0 % FAR y 0 % FRR con umbral 0.35 |
 
 Compáralo con la vía antigua, cuyo margen era **+0.22** y encima contra
 impostores sintéticos. Y el modelo aguanta lo que hay que aguantar: bajar 20 dB
@@ -763,7 +763,7 @@ Coste: **53 ms** por audio de 5 s en un hilo de CPU.
 
 ### La causa nº 1 de «acepta a cualquiera»: la misma voz en dos cuentas
 
-Después de instalar CAM++ el login por voz seguía dejando entrar «con cualquier
+Después de instalar ResNet34 el login por voz seguía dejando entrar «con cualquier
 voz». No era el modelo. La medida:
 
 ```
@@ -776,7 +776,7 @@ Voces realmente ajenas contra esas mismas plantillas
 
 Las dos cuentas tenían **la misma voz matriculada**. El sistema no fallaba: estaba
 acertando. Una grabación de esa persona abre las dos cuentas porque las dos son
-esa persona. Y voces distintas sí se rechazaban, en 0.05–0.23 frente a 0.40.
+esa persona. Y voces distintas sí se rechazaban, en 0.05–0.23 frente a 0.35.
 
 Nada impedía llegar a ese estado, así que ahora hay un **guardia de duplicados**:
 al matricular voz se compara el embedding nuevo contra el de **todas** las demás
@@ -820,7 +820,7 @@ El mismo camino lo usa el desafío de dígitos para la parte de identidad.
 
 ### Por qué el fbank es propio y no reutiliza `mfcc.py`
 
-CAM++ espera exactamente la entrada de `kaldi.fbank(window_type='hamming')`, y
+ResNet34 espera exactamente la entrada de `kaldi.fbank(window_type='hamming')`, y
 eso impone detalles que `mfcc.py` no cumple:
 
 - Los bordes de los filtros mel van **sin cuantizar a bins enteros**; `mfcc.py`
@@ -1522,7 +1522,7 @@ no generaliza.
 
 | Script | Qué hace |
 |---|---|
-| `fetch_models.py` | Descarga YuNet, SFace, landmarks y CAM++ al proyecto (~81 MB). Obligatorio antes del primer arranque. |
+| `fetch_models.py` | Descarga YuNet, SFace, landmarks y ResNet34 al proyecto (~81 MB). Obligatorio antes del primer arranque. |
 | `create_db.py` | Crea la base de datos en PostgreSQL si no existe. |
 | `migrate_username_per_tenant.py` | Cambia la unicidad de `username` de global a por sistema cliente. Para instalaciones previas a Alembic, ejecutar antes de `alembic stamp head`. Idempotente, con `--dry-run`. |
 | `migrate_v05.py` | **Histórico (pre-Alembic).** Añade `uuid` a los usuarios, crea operadores y API keys, retira plantillas del algoritmo antiguo. |
@@ -1543,7 +1543,7 @@ no generaliza.
 | `calibrate_face_db.py` | Mide el umbral facial desde las plantillas ya guardadas en la base: distribuciones genuino/impostor, EER, umbral por FAR objetivo y pares impostores altos (cuentas duplicadas o gemelas). Solo lectura. |
 | `test_apikeys.py` | Valida cabecera, hash, permisos, caducidad, revocación y rotación de API keys. Revoca solo las suyas. |
 | `diagnose_voice_db.py` | Puntúa audio real contra **todas** las cuentas de la base y recomienda umbral. Solo lee. |
-| `test_speaker_embedding.py` | Valida el fbank estilo Kaldi, el embedding CAM++ y su separación. No toca la base. |
+| `test_speaker_embedding.py` | Valida el fbank estilo Kaldi, el embedding ResNet34 y su separación. No toca la base. |
 | `test_voice_duplicates.py` | Valida el guardia de voces duplicadas contra un servidor. Crea y borra **solo** sus usuarios. |
 | `bench_voice.py` | EER de voz con locutores sintéticos: GMM vs UBM-MAP. |
 | `calibrate_face.py` | Calcula FAR/FRR/EER faciales con datos reales. |
